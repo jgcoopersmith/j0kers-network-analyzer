@@ -290,8 +290,11 @@
                           ToolTip="Show Mbps instead of MB/s"/>
                 <CheckBox Content="Inactive adapters" VerticalAlignment="Center" Margin="0,0,14,0"
                           IsChecked="{Binding ShowInactive, Mode=TwoWay}"/>
-                <CheckBox Content="Loopback" VerticalAlignment="Center" Margin="0,0,18,0"
+                <CheckBox Content="Loopback" VerticalAlignment="Center" Margin="0,0,14,0"
                           IsChecked="{Binding ShowLoopback, Mode=TwoWay}"/>
+                <CheckBox Content="Hide filter adapters" VerticalAlignment="Center" Margin="0,0,18,0"
+                          IsChecked="{Binding HideFilterAdapters, Mode=TwoWay}"
+                          ToolTip="Hide the WFP/QoS filter entries Windows stacks on each real NIC"/>
 
                 <ToggleButton Content="{Binding ViewModeText, Mode=OneWay}" Width="96" Margin="0,0,8,0"
                               IsChecked="{Binding StreamView, Mode=TwoWay}"

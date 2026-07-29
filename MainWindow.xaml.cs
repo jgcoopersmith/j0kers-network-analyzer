@@ -14,6 +14,9 @@ public partial class MainWindow : Window
     /// <summary>Set by File &gt; Exit so that path closes for real regardless of the minimize setting.</summary>
     private bool _exiting;
 
+    /// <summary>Tracks whether the window is currently parked in the notification area.</summary>
+    private bool _inTray;
+
     private readonly TrayIcon _tray = new("j0kers Network Analyzer");
 
     /// <summary>Coalesces bursts of preference changes into a single write.</summary>
@@ -46,7 +49,16 @@ public partial class MainWindow : Window
             Close();
         };
 
-        Loaded += (_, _) => _monitor.Start();
+        Loaded += (_, _) =>
+        {
+            _monitor.Start();
+
+            // Deferred to Loaded: hiding into the tray only works once the window exists.
+            if (settings.HiddenInTray)
+                HideToTray();
+            else if (settings.WindowMinimized)
+                WindowState = WindowState.Minimized;
+        };
         Closing += MainWindow_Closing;
         StateChanged += MainWindow_StateChanged;
         Closed += (_, _) =>
@@ -73,6 +85,9 @@ public partial class MainWindow : Window
         settings.WindowWidth = bounds.Width;
         settings.WindowHeight = bounds.Height;
         settings.WindowMaximized = WindowState == WindowState.Maximized;
+        settings.HiddenInTray = _inTray;
+        // In the tray the window is also technically minimized; only one of the two should stick.
+        settings.WindowMinimized = !_inTray && WindowState == WindowState.Minimized;
 
         SettingsStore.Save(settings);
     }
@@ -127,18 +142,22 @@ public partial class MainWindow : Window
 
     private void HideToTray()
     {
+        _inTray = true;
         _tray.Show();
         ShowInTaskbar = false;
         Hide();
+        SaveSettings();
     }
 
     private void RestoreFromTray()
     {
+        _inTray = false;
         Show();
         ShowInTaskbar = true;
         WindowState = WindowState.Normal;
         Activate();
         _tray.Hide();
+        SaveSettings();
     }
 
     private void ExitMenu_Click(object sender, RoutedEventArgs e)

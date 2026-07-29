@@ -32,6 +32,10 @@ The interval is configurable from 100 ms to 5 s on the slider, or typed directly
 (clamped to 100–10000). Rates are computed from actual elapsed time rather than the nominal
 interval, so accuracy holds even when a tick runs late.
 
+**Hide filter adapters** (on by default) drops the WFP/QoS filter entries Windows stacks on top of
+each real NIC. They mirror the traffic of the adapter they sit on, so leaving them visible means
+seeing the same bytes several times over.
+
 Also included: pause/resume, reset totals, and filters for inactive adapters and loopback.
 Adapters that appear or disappear mid-run — a VPN coming up, a USB NIC unplugged — are added and
 removed automatically.
@@ -41,7 +45,8 @@ removed automatically.
 Preferences persist across restarts in
 `%APPDATA%\j0kers Network Analyzer\settings.json`: polling interval, view mode, flow speed,
 unit and filter toggles, the close/tray behaviour, window size and position, the drag-ordered
-interface list, and each interface's activity switch. Writes are debounced and also happen on
+interface list, and each interface's activity switch. It also remembers how the window was left:
+close it minimized or sitting in the tray and it reopens that way. Writes are debounced and also happen on
 exit. Adapters that are filtered out or unplugged keep their saved state for next time, and a
 saved window position is only restored if it still lands on a connected display.
 

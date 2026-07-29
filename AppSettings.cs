@@ -22,6 +22,10 @@ public sealed class AppSettings
     public bool UseBits { get; set; }
     public bool ShowInactive { get; set; }
     public bool ShowLoopback { get; set; }
+
+    /// <summary>Defaults on: the WFP/QoS pseudo-adapters are noise for almost every user.</summary>
+    public bool HideFilterAdapters { get; set; } = true;
+
     public bool StreamView { get; set; }
     public double StreamSpeed { get; set; } = 60;
     public bool MinimizeOnClose { get; set; }
@@ -32,6 +36,12 @@ public sealed class AppSettings
     public double WindowLeft { get; set; } = double.NaN;
     public double WindowTop { get; set; } = double.NaN;
     public bool WindowMaximized { get; set; }
+
+    /// <summary>Reopen minimized if that is how it was left.</summary>
+    public bool WindowMinimized { get; set; }
+
+    /// <summary>Reopen straight into the notification area if it was sitting there.</summary>
+    public bool HiddenInTray { get; set; }
 
     /// <summary>Interfaces in display order; the order of this list is the saved ordering.</summary>
     public List<InterfaceSetting> Interfaces { get; set; } = new();

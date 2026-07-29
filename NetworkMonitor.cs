@@ -24,6 +24,7 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
     private int _intervalMs = 500;
     private bool _showInactive;
     private bool _showLoopback;
+    private bool _hideFilterAdapters = true;
     private bool _useBits;
     private bool _streamView;
     private double _streamSpeed = 60;
@@ -80,6 +81,13 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
     {
         get => _showLoopback;
         set { if (Set(ref _showLoopback, value)) Resync(); }
+    }
+
+    /// <summary>Hides the WFP/QoS filter pseudo-adapters Windows stacks on each real NIC.</summary>
+    public bool HideFilterAdapters
+    {
+        get => _hideFilterAdapters;
+        set { if (Set(ref _hideFilterAdapters, value)) Resync(); }
     }
 
     /// <summary>Display throughput in bits/sec rather than bytes/sec.</summary>
@@ -145,6 +153,7 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
         _useBits = s.UseBits;
         _showInactive = s.ShowInactive;
         _showLoopback = s.ShowLoopback;
+        _hideFilterAdapters = s.HideFilterAdapters;
         _streamView = s.StreamView;
         _streamSpeed = Math.Clamp(s.StreamSpeed, 10, 300);
         _minimizeOnClose = s.MinimizeOnClose;
@@ -163,7 +172,8 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
         foreach (var name in new[]
         {
             nameof(IntervalMs), nameof(IntervalText), nameof(UseBits), nameof(ShowInactive),
-            nameof(ShowLoopback), nameof(StreamView), nameof(ViewModeText), nameof(StreamSpeed),
+            nameof(ShowLoopback), nameof(HideFilterAdapters), nameof(StreamView),
+            nameof(ViewModeText), nameof(StreamSpeed),
             nameof(MinimizeOnClose), nameof(MinimizeToTray),
         })
         {
@@ -178,6 +188,7 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
         UseBits = _useBits,
         ShowInactive = _showInactive,
         ShowLoopback = _showLoopback,
+        HideFilterAdapters = _hideFilterAdapters,
         StreamView = _streamView,
         StreamSpeed = _streamSpeed,
         MinimizeOnClose = _minimizeOnClose,
@@ -282,6 +293,8 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
                 continue;
             if (nic.OperationalStatus != OperationalStatus.Up && !_showInactive)
                 continue;
+            if (_hideFilterAdapters && IsFilterAdapter(nic))
+                continue;
 
             try
             {
@@ -294,6 +307,30 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
             }
         }
         return list;
+    }
+
+    /// <summary>
+    /// Windows exposes an entry for each filter driver bound to a NIC — QoS scheduling, WFP MAC
+    /// layer shims, the WiFi virtualization filters. They report the same traffic as the adapter
+    /// they sit on, so counting them means counting everything several times over.
+    /// </summary>
+    private static readonly string[] FilterAdapterMarkers =
+    {
+        "LightWeight Filter",
+        "Filter Driver",
+        "QoS Packet Scheduler",
+        "Packet Scheduler Miniport",
+    };
+
+    private static bool IsFilterAdapter(NetworkInterface nic)
+    {
+        foreach (var marker in FilterAdapterMarkers)
+        {
+            if (nic.Name.Contains(marker, StringComparison.OrdinalIgnoreCase) ||
+                nic.Description.Contains(marker, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
     }
 
     private void Apply(List<Sample> samples, double elapsed)
