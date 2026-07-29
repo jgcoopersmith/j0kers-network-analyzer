@@ -20,6 +20,7 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
     private bool _useBits;
     private bool _streamView;
     private double _streamSpeed = 60;
+    private bool _minimizeOnClose;
 
     public NetworkMonitor()
     {
@@ -91,6 +92,13 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
     }
 
     public string ViewModeText => _streamView ? "View: Stream" : "View: Bars";
+
+    /// <summary>When set, closing the window minimizes it to the taskbar instead of exiting.</summary>
+    public bool MinimizeOnClose
+    {
+        get => _minimizeOnClose;
+        set => Set(ref _minimizeOnClose, value);
+    }
 
     /// <summary>How fast the stream ribbon scrolls, in pixels per second.</summary>
     public double StreamSpeed

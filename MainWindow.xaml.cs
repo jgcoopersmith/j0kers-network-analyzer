@@ -7,12 +7,32 @@ public partial class MainWindow : Window
 {
     private readonly NetworkMonitor _monitor = new();
 
+    /// <summary>Set by File &gt; Exit so that path closes for real regardless of the minimize setting.</summary>
+    private bool _exiting;
+
     public MainWindow()
     {
         InitializeComponent();
         DataContext = _monitor;
         Loaded += (_, _) => _monitor.Start();
+        Closing += MainWindow_Closing;
         Closed += (_, _) => _monitor.Stop();
+    }
+
+    private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        if (_exiting || !_monitor.MinimizeOnClose)
+            return;
+
+        // Send it to the taskbar instead of shutting down; polling carries on in the background.
+        e.Cancel = true;
+        WindowState = WindowState.Minimized;
+    }
+
+    private void ExitMenu_Click(object sender, RoutedEventArgs e)
+    {
+        _exiting = true;
+        Close();
     }
 
     private void PauseButton_Click(object sender, RoutedEventArgs e)

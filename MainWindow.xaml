@@ -127,12 +127,26 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
+        <!-- Menu bar -->
+        <Border Grid.Row="0" Background="#171C24" Padding="6,2">
+            <Menu>
+                <MenuItem Header="_File">
+                    <MenuItem Header="Minimize when closed" IsCheckable="True"
+                              IsChecked="{Binding MinimizeOnClose, Mode=TwoWay}"
+                              ToolTip="Closing the window sends it to the taskbar instead of exiting"/>
+                    <Separator/>
+                    <MenuItem Header="E_xit" InputGestureText="Alt+F4" Click="ExitMenu_Click"/>
+                </MenuItem>
+            </Menu>
+        </Border>
+
         <!-- Banner -->
-        <Border Grid.Row="0" Padding="16,11" BorderBrush="#2C3440" BorderThickness="0,0,0,1">
+        <Border Grid.Row="1" Padding="16,11" BorderBrush="#2C3440" BorderThickness="0,0,0,1">
             <Border.Background>
                 <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
                     <GradientStop Color="#16202B" Offset="0"/>
@@ -160,7 +174,7 @@
         </Border>
 
         <!-- Toolbar -->
-        <Border Grid.Row="1" Background="{StaticResource PanelAlt}" Padding="14,10"
+        <Border Grid.Row="2" Background="{StaticResource PanelAlt}" Padding="14,10"
                 BorderBrush="#2C3440" BorderThickness="0,0,0,1">
             <WrapPanel Orientation="Horizontal">
                 <TextBlock Text="Poll every" VerticalAlignment="Center" Margin="0,0,8,0"/>
@@ -205,7 +219,7 @@
         </Border>
 
         <!-- Interface list -->
-        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Padding="14,12,14,0">
+        <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" Padding="14,12,14,0">
             <Grid>
                 <ItemsControl ItemsSource="{Binding Interfaces}"
                               ItemTemplate="{StaticResource InterfaceTemplate}"/>
@@ -226,7 +240,7 @@
         </ScrollViewer>
 
         <!-- Aggregate footer -->
-        <Border Grid.Row="3" Background="{StaticResource PanelAlt}" Padding="14,7"
+        <Border Grid.Row="4" Background="{StaticResource PanelAlt}" Padding="14,7"
                 BorderBrush="#2C3440" BorderThickness="0,1,0,0">
             <DockPanel>
                 <TextBlock DockPanel.Dock="Right" Foreground="{StaticResource FgDim}" FontSize="11"
