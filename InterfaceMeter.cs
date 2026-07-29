@@ -142,13 +142,17 @@ public sealed class InterfaceMeter : INotifyPropertyChanged
         RaiseTextChanged();
     }
 
-    /// <summary>Zeroes the live readings without discarding session totals (used when a NIC goes quiet).</summary>
-    public void Idle(double elapsedSeconds)
+    /// <summary>
+    /// Forgets the counter baseline so the next reading starts a fresh interval. Used when
+    /// resuming after a pause: without this, the bytes that accumulated while paused would be
+    /// divided by the few milliseconds since the timer restarted, reading as an enormous spike.
+    /// </summary>
+    public void ResetBaseline()
     {
+        LastBytesReceived = -1;
+        LastBytesSent = -1;
         InRate = OutRate = 0;
         InLevel = OutLevel = 0;
-        InPeak = DecayPeak(InPeak, 0, elapsedSeconds);
-        OutPeak = DecayPeak(OutPeak, 0, elapsedSeconds);
         RaiseTextChanged();
     }
 

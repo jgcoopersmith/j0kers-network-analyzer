@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace NetAnalyzer;
 
@@ -55,7 +56,14 @@ public sealed class AppSettings
 /// <summary>Loads and saves <see cref="AppSettings"/> under the user's roaming profile.</summary>
 public static class SettingsStore
 {
-    private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions Options = new()
+    {
+        WriteIndented = true,
+        // WindowLeft/Top use NaN to mean "no saved position". System.Text.Json throws on
+        // non-finite doubles unless named literals are allowed, which would turn a missing
+        // position into a crash on save.
+        NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
+    };
 
     public static string FilePath { get; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -69,9 +77,11 @@ public static class SettingsStore
         {
             if (!File.Exists(FilePath))
                 return new AppSettings();
-            return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath)) ?? new AppSettings();
+            return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath), Options)
+                ?? new AppSettings();
         }
-        catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException)
+        catch (Exception e) when (e is IOException or JsonException or NotSupportedException
+                                    or UnauthorizedAccessException or ArgumentException)
         {
             return new AppSettings();
         }
@@ -90,8 +100,10 @@ public static class SettingsStore
             File.WriteAllText(temp, JsonSerializer.Serialize(settings, Options));
             File.Move(temp, FilePath, overwrite: true);
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        catch (Exception e) when (e is IOException or JsonException or NotSupportedException
+                                    or UnauthorizedAccessException or ArgumentException)
         {
+            // Preferences are a convenience; failing to store them must never take down the app.
         }
     }
 }

@@ -86,6 +86,18 @@ public sealed class StreamGraph : FrameworkElement
     private void OnFrame(object? sender, EventArgs e)
     {
         var now = Now;
+
+        // A collapsed element is never rendered, so it must not keep collecting samples: the
+        // history would grow without bound behind a hidden graph. Drop the backlog instead —
+        // by the time it is shown again this data would all have scrolled off anyway.
+        if (!IsVisible)
+        {
+            _history.Clear();
+            _smoothIn = _smoothOut = 0;
+            _lastFrameTime = now;
+            return;
+        }
+
         var dt = Math.Clamp(now - _lastFrameTime, 0, 0.5);
         _lastFrameTime = now;
 
@@ -100,7 +112,24 @@ public sealed class StreamGraph : FrameworkElement
         if (_history.Count == 0 || now - _history[^1].Time >= SampleSeconds)
             _history.Add(new Sample(now, _smoothIn, _smoothOut));
 
+        // Prune here rather than in OnRender: pruning has to happen on the same schedule as
+        // appending, and OnRender is not guaranteed to run.
+        Prune(now);
+
         InvalidateVisual();
+    }
+
+    /// <summary>Drops samples that have scrolled past the left edge.</summary>
+    private void Prune(double now)
+    {
+        var pps = Math.Max(1, PixelsPerSecond);
+        var cutoff = now - (ActualWidth / pps) - 1.0;
+
+        var stale = 0;
+        while (stale < _history.Count && _history[stale].Time < cutoff)
+            stale++;
+        if (stale > 0)
+            _history.RemoveRange(0, stale);
     }
 
     protected override void OnRender(DrawingContext dc)
@@ -110,28 +139,20 @@ public sealed class StreamGraph : FrameworkElement
         if (w <= 0 || h <= 0)
             return;
 
-        dc.DrawRoundedRectangle(new SolidColorBrush(Color.FromRgb(0x0E, 0x11, 0x16)), null,
-            new Rect(0, 0, w, h), 3, 3);
+        dc.DrawRoundedRectangle(TrackBrush, null, new Rect(0, 0, w, h), 3, 3);
 
         var centre = h / 2.0;
         var maxHalf = Math.Max(IdleHalfThickness, centre - 2);
         var pps = Math.Max(1, PixelsPerSecond);
         var now = Now;
 
-        // Drop samples that have scrolled off the left edge.
-        var cutoff = now - (w / pps) - 1.0;
-        var stale = 0;
-        while (stale < _history.Count && _history[stale].Time < cutoff)
-            stale++;
-        if (stale > 0)
-            _history.RemoveRange(0, stale);
+        Prune(now);
+        EnsureBrushes(centre, h);
 
         dc.PushClip(new RectangleGeometry(new Rect(0, 0, w, h), 3, 3));
 
         // Centre line: the stream's spine, visible wherever traffic is near zero.
-        var spine = new SolidColorBrush(Color.FromRgb(0x25, 0x2C, 0x37));
-        spine.Freeze();
-        dc.DrawRectangle(spine, null, new Rect(0, centre - 0.5, w, 1));
+        dc.DrawRectangle(SpineBrush, null, new Rect(0, centre - 0.5, w, 1));
 
         if (_history.Count > 0)
         {
@@ -150,8 +171,8 @@ public sealed class StreamGraph : FrameworkElement
             inPoints.Add(new Point(w, centre - Thickness(_smoothIn, maxHalf)));
             outPoints.Add(new Point(w, centre + Thickness(_smoothOut, maxHalf)));
 
-            DrawRibbon(dc, inPoints, centre, upward: true, h);
-            DrawRibbon(dc, outPoints, centre, upward: false, h);
+            DrawRibbon(dc, inPoints, centre, upward: true);
+            DrawRibbon(dc, outPoints, centre, upward: false);
         }
 
         dc.Pop();
@@ -160,7 +181,7 @@ public sealed class StreamGraph : FrameworkElement
     private static double Thickness(double level, double maxHalf)
         => IdleHalfThickness + Math.Clamp(level, 0, 1) * (maxHalf - IdleHalfThickness);
 
-    private void DrawRibbon(DrawingContext dc, List<Point> points, double centre, bool upward, double h)
+    private void DrawRibbon(DrawingContext dc, List<Point> points, double centre, bool upward)
     {
         if (points.Count < 2)
             return;
@@ -187,25 +208,71 @@ public sealed class StreamGraph : FrameworkElement
         }
         geo.Freeze();
 
-        // Colour ramps outward from the spine, so a fat stream reads hot at its edges.
-        var near = upward ? Color.FromRgb(0x3A, 0xD1, 0x7E) : Color.FromRgb(0x3A, 0xC6, 0xE8);
-        var far = upward ? Color.FromRgb(0xF2, 0x4E, 0x4E) : Color.FromRgb(0xF0, 0x54, 0xC0);
+        dc.DrawGeometry(
+            upward ? _fillUp! : _fillDown!,
+            upward ? PenUp : PenDown,
+            geo);
+    }
 
-        // Absolute mapping ties the ramp to the element, not the geometry bounds, so a thin
-        // ribbon keeps its cool colour instead of stretching the whole ramp across two pixels.
-        var fill = new LinearGradientBrush
+    // ---- Cached drawing resources ----
+    //
+    // OnRender runs at frame rate, so nothing here is rebuilt per frame. The gradients are the
+    // only height-dependent pieces; everything else is fixed and shared across instances.
+
+    private static readonly Brush TrackBrush = Frozen(Color.FromRgb(0x0E, 0x11, 0x16));
+    private static readonly Brush SpineBrush = Frozen(Color.FromRgb(0x25, 0x2C, 0x37));
+
+    private static readonly Color NearUp = Color.FromRgb(0x3A, 0xD1, 0x7E);
+    private static readonly Color FarUp = Color.FromRgb(0xF2, 0x4E, 0x4E);
+    private static readonly Color NearDown = Color.FromRgb(0x3A, 0xC6, 0xE8);
+    private static readonly Color FarDown = Color.FromRgb(0xF0, 0x54, 0xC0);
+
+    private static readonly Pen PenUp = FrozenPen(NearUp);
+    private static readonly Pen PenDown = FrozenPen(NearDown);
+
+    private LinearGradientBrush? _fillUp, _fillDown;
+    private double _cachedCentre = -1, _cachedHeight = -1;
+
+    private void EnsureBrushes(double centre, double h)
+    {
+        if (_fillUp is not null && _cachedCentre == centre && _cachedHeight == h)
+            return;
+
+        _fillUp = Ramp(centre, 0, NearUp, FarUp);
+        _fillDown = Ramp(centre, h, NearDown, FarDown);
+        _cachedCentre = centre;
+        _cachedHeight = h;
+    }
+
+    /// <summary>
+    /// Absolute mapping ties the ramp to the element rather than the geometry bounds, so a thin
+    /// ribbon keeps its cool colour instead of stretching the whole ramp across two pixels.
+    /// </summary>
+    private static LinearGradientBrush Ramp(double from, double to, Color near, Color far)
+    {
+        var brush = new LinearGradientBrush
         {
             MappingMode = BrushMappingMode.Absolute,
-            StartPoint = new Point(0, centre),
-            EndPoint = new Point(0, upward ? 0 : h),
+            StartPoint = new Point(0, from),
+            EndPoint = new Point(0, to),
         };
-        fill.GradientStops.Add(new GradientStop(Color.FromArgb(0xE0, near.R, near.G, near.B), 0));
-        fill.GradientStops.Add(new GradientStop(Color.FromArgb(0xC0, far.R, far.G, far.B), 1));
-        fill.Freeze();
+        brush.GradientStops.Add(new GradientStop(Color.FromArgb(0xE0, near.R, near.G, near.B), 0));
+        brush.GradientStops.Add(new GradientStop(Color.FromArgb(0xC0, far.R, far.G, far.B), 1));
+        brush.Freeze();
+        return brush;
+    }
 
-        var pen = new Pen(new SolidColorBrush(near), 1.0);
+    private static Brush Frozen(Color c)
+    {
+        var brush = new SolidColorBrush(c);
+        brush.Freeze();
+        return brush;
+    }
+
+    private static Pen FrozenPen(Color c)
+    {
+        var pen = new Pen(Frozen(c), 1.0);
         pen.Freeze();
-
-        dc.DrawGeometry(fill, pen, geo);
+        return pen;
     }
 }

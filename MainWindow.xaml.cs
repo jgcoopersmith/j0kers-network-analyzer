@@ -27,6 +27,11 @@ public partial class MainWindow : Window
         InitializeComponent();
         DataContext = _monitor;
 
+        // Captured from XAML before widget mode drops them to zero, so leaving widget mode
+        // restores the real limits rather than a second copy of them hardcoded here.
+        _chromeMinWidth = MinWidth;
+        _chromeMinHeight = MinHeight;
+
         var settings = SettingsStore.Load();
         _monitor.ApplySettings(settings);
         RestoreWindowBounds(settings);
@@ -116,24 +121,45 @@ public partial class MainWindow : Window
             _normalBounds = new Rect(0, 0, s.WindowWidth, s.WindowHeight);
         }
 
-        // Only honour a saved position that still lands on a connected display — a monitor may
-        // have been unplugged since, which would otherwise put the window out of reach.
-        if (!double.IsNaN(s.WindowLeft) && !double.IsNaN(s.WindowTop))
+        // Only honour a saved position that still leaves the window reachable — a monitor may
+        // have been unplugged since. Requiring the whole window to fit would reject a window
+        // legitimately parked against a screen edge, so this checks that enough of the top
+        // edge is on screen to grab.
+        if (!double.IsNaN(s.WindowLeft) && !double.IsNaN(s.WindowTop) && IsReachable(s.WindowLeft, s.WindowTop, Width))
         {
-            var screen = new Rect(
-                SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
-                SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
-
-            if (screen.Contains(new Rect(s.WindowLeft, s.WindowTop, Math.Min(Width, screen.Width), 40)))
-            {
-                WindowStartupLocation = WindowStartupLocation.Manual;
-                Left = s.WindowLeft;
-                Top = s.WindowTop;
-            }
+            WindowStartupLocation = WindowStartupLocation.Manual;
+            Left = s.WindowLeft;
+            Top = s.WindowTop;
         }
 
         if (s.WindowMaximized)
             WindowState = WindowState.Maximized;
+    }
+
+    private static Rect VirtualScreen => new(
+        SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
+        SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
+
+    /// <summary>True when enough of the window's top edge is on a display to click and drag.</summary>
+    private static bool IsReachable(double left, double top, double width)
+    {
+        var titleBar = new Rect(left, top, Math.Max(1, width), 32);
+        titleBar.Intersect(VirtualScreen);
+        return titleBar.Width >= 100 && titleBar.Height >= 20;
+    }
+
+    /// <summary>
+    /// Pulls the window back into view. Leaving widget mode grows it from 330px wide, which can
+    /// push most of it off screen if the widget was sitting near a right or bottom edge.
+    /// </summary>
+    private void EnsureOnScreen()
+    {
+        if (double.IsNaN(Left) || double.IsNaN(Top) || IsReachable(Left, Top, Width))
+            return;
+
+        var screen = VirtualScreen;
+        Left = Math.Clamp(Left, screen.Left, Math.Max(screen.Left, screen.Right - Width));
+        Top = Math.Clamp(Top, screen.Top, Math.Max(screen.Top, screen.Bottom - Height));
     }
 
     private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
@@ -182,18 +208,20 @@ public partial class MainWindow : Window
         Close();
     }
 
+    private bool _paused;
+
     private void PauseButton_Click(object sender, RoutedEventArgs e)
     {
-        if (PauseButton.Content as string == "Pause")
-        {
+        // Tracked in a field rather than read back from the button caption, which would break
+        // silently if the label ever changed.
+        _paused = !_paused;
+
+        if (_paused)
             _monitor.Stop();
-            PauseButton.Content = "Resume";
-        }
         else
-        {
             _monitor.Start();
-            PauseButton.Content = "Pause";
-        }
+
+        PauseButton.Content = _paused ? "Resume" : "Pause";
     }
 
     private void ResetButton_Click(object sender, RoutedEventArgs e) => _monitor.ResetTotals();
@@ -202,6 +230,10 @@ public partial class MainWindow : Window
 
     /// <summary>Window geometry from before widget mode, restored on the way out.</summary>
     private Rect _normalBounds = Rect.Empty;
+
+    /// <summary>Size limits for the full window, taken from XAML at construction.</summary>
+    private readonly double _chromeMinWidth;
+    private readonly double _chromeMinHeight;
 
     private void CycleView_Click(object sender, RoutedEventArgs e) => _monitor.CycleMode();
 
@@ -213,8 +245,19 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Widget mode has no title bar, so the panel itself is the drag handle.
-        DragMove();
+        // Widget mode has no title bar, so the panel itself is the drag handle. DragMove throws
+        // if the button is no longer down by the time it runs — a fast click can beat it there,
+        // and an unhandled exception here would take the app down over a stray click.
+        if (e.ButtonState != MouseButtonState.Pressed)
+            return;
+
+        try
+        {
+            DragMove();
+        }
+        catch (InvalidOperationException)
+        {
+        }
     }
 
     private void ApplyViewMode()
@@ -257,19 +300,16 @@ public partial class MainWindow : Window
         SizeToContent = SizeToContent.Manual;
         WindowStyle = WindowStyle.SingleBorderWindow;
         ResizeMode = ResizeMode.CanResize;
-        MinWidth = 720;
-        MinHeight = 320;
+        MinWidth = _chromeMinWidth;
+        MinHeight = _chromeMinHeight;
 
         if (!_normalBounds.IsEmpty)
         {
             Width = _normalBounds.Width;
             Height = _normalBounds.Height;
         }
-        else
-        {
-            Width = 940;
-            Height = 660;
-        }
+
+        EnsureOnScreen();
     }
 
     // ---- Drag-and-drop reordering of the interface list ----

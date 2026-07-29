@@ -54,8 +54,13 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
         // A drag reorder shows up here as a Move; that is a preference worth persisting.
         Interfaces.CollectionChanged += (_, e) =>
         {
-            if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Move)
-                SettingsChanged?.Invoke();
+            if (e.Action != System.Collections.Specialized.NotifyCollectionChangedAction.Move)
+                return;
+
+            // Refresh the ranks too, so an adapter that appears later this session is placed
+            // according to the order as it stands now rather than as it was at startup.
+            _savedOrder = CaptureInterfaces().Select(i => i.Id).ToList();
+            SettingsChanged?.Invoke();
         };
     }
 
@@ -270,12 +275,17 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
 
     private int OrderRank(string id)
     {
-        var index = _savedOrder.IndexOf(id);
+        var index = _savedOrder.FindIndex(s => string.Equals(s, id, StringComparison.OrdinalIgnoreCase));
         return index < 0 ? int.MaxValue : index;
     }
 
     public void Start()
     {
+        // Drop stale baselines first: any bytes counted while stopped belong to an interval we
+        // did not measure, and attributing them to the next tick would read as a huge spike.
+        foreach (var m in Interfaces)
+            m.ResetBaseline();
+
         _lastTimestamp = Stopwatch.GetTimestamp();
         _timer.Start();
         _ = PollAsync();
@@ -368,7 +378,8 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
 
     private void Apply(List<Sample> samples, double elapsed)
     {
-        var seen = new HashSet<string>();
+        // Same comparer as _saved and CaptureInterfaces, so identity is judged consistently.
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var s in samples)
         {
@@ -418,7 +429,7 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
     private void RememberInterface(InterfaceMeter m)
     {
         _saved[m.Id] = new InterfaceSetting { Id = m.Id, Name = m.Name, ShowActivity = m.ShowActivity };
-        if (!_savedOrder.Contains(m.Id))
+        if (OrderRank(m.Id) == int.MaxValue)
             _savedOrder.Add(m.Id);
     }
 
@@ -435,8 +446,11 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
             m.PropertyChanged -= Meter_PropertyChanged;
         Interfaces.Clear();
         _byId.Clear();
-        if (_timer.IsEnabled)
-            _ = PollAsync();
+
+        // Repopulate even while paused, otherwise changing a filter leaves an empty window
+        // until the user resumes. The refreshed meters have no baseline, so no rates are
+        // produced by this poll — it only rebuilds the list.
+        _ = PollAsync();
     }
 
     /// <summary>Combined current throughput across every visible interface.</summary>

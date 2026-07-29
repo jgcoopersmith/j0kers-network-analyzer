@@ -88,6 +88,15 @@ public sealed class SpectrumBar : FrameworkElement
     private void OnFrame(object? sender, EventArgs e)
     {
         var now = DateTime.UtcNow;
+
+        // Nothing to ease while collapsed — in stream and widget modes every bar is hidden,
+        // and invalidating them each frame is pure waste.
+        if (!IsVisible)
+        {
+            _lastFrame = now;
+            return;
+        }
+
         var dt = (now - _lastFrame).TotalSeconds;
         _lastFrame = now;
 
@@ -111,8 +120,7 @@ public sealed class SpectrumBar : FrameworkElement
             return;
 
         // Track behind the segments.
-        dc.DrawRoundedRectangle(new SolidColorBrush(Color.FromRgb(0x0E, 0x11, 0x16)), null,
-            new Rect(0, 0, w, h), 3, 3);
+        dc.DrawRoundedRectangle(TrackBrush, null, new Rect(0, 0, w, h), 3, 3);
 
         var pitch = SegmentWidth + SegmentGap;
         var count = Math.Max(1, (int)((w + SegmentGap) / pitch));
@@ -120,33 +128,56 @@ public sealed class SpectrumBar : FrameworkElement
         var peakIndex = peak > 0 ? (int)Math.Min(count - 1, peak * count) : -1;
         var litCount = (int)Math.Round(_displayLevel * count);
 
+        EnsureBrushes(count);
+
         for (var i = 0; i < count; i++)
         {
-            var fraction = count == 1 ? 0 : i / (double)(count - 1);
-            var x = i * pitch;
-            var rect = new Rect(x, 0, SegmentWidth, h);
-
-            Brush brush;
-            if (i < litCount)
-            {
-                brush = new SolidColorBrush(ColorAt(fraction));
-            }
-            else if (i == peakIndex)
-            {
-                // Peak-hold marker: same hue as its position, dimmed but clearly visible.
-                var c = ColorAt(fraction);
-                brush = new SolidColorBrush(Color.FromArgb(0xB0, c.R, c.G, c.B));
-            }
-            else
-            {
-                var c = ColorAt(fraction);
-                brush = new SolidColorBrush(Color.FromArgb(0x22, c.R, c.G, c.B));
-            }
-
-            brush.Freeze();
+            var rect = new Rect(i * pitch, 0, SegmentWidth, h);
+            var brush = i < litCount ? _lit![i]
+                : i == peakIndex ? _peak![i]
+                : _dim![i];
             dc.DrawRectangle(brush, null, rect);
         }
     }
+
+    /// <summary>
+    /// Segment colours depend only on position and state, so they are built once per segment
+    /// count rather than per frame — this render path runs at frame rate for every bar on screen.
+    /// </summary>
+    private void EnsureBrushes(int count)
+    {
+        if (_lit is not null && _cachedCount == count && _cachedPalette == Palette)
+            return;
+
+        _lit = new Brush[count];
+        _peak = new Brush[count];
+        _dim = new Brush[count];
+
+        for (var i = 0; i < count; i++)
+        {
+            var c = ColorAt(count == 1 ? 0 : i / (double)(count - 1));
+            _lit[i] = Frozen(c);
+            // Peak-hold marker: same hue as its position, dimmed but clearly visible.
+            _peak[i] = Frozen(Color.FromArgb(0xB0, c.R, c.G, c.B));
+            _dim[i] = Frozen(Color.FromArgb(0x22, c.R, c.G, c.B));
+        }
+
+        _cachedCount = count;
+        _cachedPalette = Palette;
+    }
+
+    private static Brush Frozen(Color c)
+    {
+        var brush = new SolidColorBrush(c);
+        brush.Freeze();
+        return brush;
+    }
+
+    private static readonly Brush TrackBrush = Frozen(Color.FromRgb(0x0E, 0x11, 0x16));
+
+    private Brush[]? _lit, _peak, _dim;
+    private int _cachedCount = -1;
+    private BarPalette _cachedPalette;
 
     /// <summary>Interpolates the palette across the length of the bar.</summary>
     private Color ColorAt(double t)
