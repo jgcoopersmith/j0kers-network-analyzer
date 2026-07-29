@@ -41,6 +41,11 @@ public partial class MainWindow : Window
             _saveTimer.Stop();
             _saveTimer.Start();
         };
+        _monitor.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(NetworkMonitor.Mode))
+                ApplyViewMode();
+        };
 
         _tray.RestoreRequested += RestoreFromTray;
         _tray.ExitRequested += () =>
@@ -52,6 +57,7 @@ public partial class MainWindow : Window
         Loaded += (_, _) =>
         {
             _monitor.Start();
+            ApplyViewMode();
 
             // Deferred to Loaded: hiding into the tray only works once the window exists.
             if (settings.HiddenInTray)
@@ -82,8 +88,13 @@ public partial class MainWindow : Window
 
         settings.WindowLeft = bounds.Left;
         settings.WindowTop = bounds.Top;
-        settings.WindowWidth = bounds.Width;
-        settings.WindowHeight = bounds.Height;
+
+        // Widget mode sizes itself, so keep the full-window size that the user chose.
+        var size = _monitor.Mode == ViewMode.Widget && !_normalBounds.IsEmpty
+            ? _normalBounds
+            : bounds;
+        settings.WindowWidth = size.Width;
+        settings.WindowHeight = size.Height;
         settings.WindowMaximized = WindowState == WindowState.Maximized;
         settings.HiddenInTray = _inTray;
         // In the tray the window is also technically minimized; only one of the two should stick.
@@ -98,6 +109,9 @@ public partial class MainWindow : Window
         {
             Width = s.WindowWidth;
             Height = s.WindowHeight;
+            // Seed the pre-widget geometry too, so starting up in widget mode still knows
+            // what size to return to.
+            _normalBounds = new Rect(0, 0, s.WindowWidth, s.WindowHeight);
         }
 
         // Only honour a saved position that still lands on a connected display — a monitor may
@@ -181,6 +195,76 @@ public partial class MainWindow : Window
     }
 
     private void ResetButton_Click(object sender, RoutedEventArgs e) => _monitor.ResetTotals();
+
+    // ---- View modes ----
+
+    /// <summary>Window geometry from before widget mode, restored on the way out.</summary>
+    private Rect _normalBounds = Rect.Empty;
+
+    private void CycleView_Click(object sender, RoutedEventArgs e) => _monitor.CycleMode();
+
+    private void Widget_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ClickCount == 2)
+        {
+            _monitor.CycleMode();
+            return;
+        }
+
+        // Widget mode has no title bar, so the panel itself is the drag handle.
+        DragMove();
+    }
+
+    private void ApplyViewMode()
+    {
+        if (_monitor.Mode == ViewMode.Widget)
+            EnterWidgetMode();
+        else
+            ExitWidgetMode();
+    }
+
+    private void EnterWidgetMode()
+    {
+        if (WindowStyle == WindowStyle.None)
+            return;
+
+        if (WindowState == WindowState.Normal)
+            _normalBounds = new Rect(Left, Top, Width, Height);
+
+        WindowState = WindowState.Normal;
+        WindowStyle = WindowStyle.None;
+        ResizeMode = ResizeMode.NoResize;
+        Topmost = true;
+        MinWidth = 0;
+        MinHeight = 0;
+        Width = 330;
+        // Height follows the number of selected interfaces.
+        SizeToContent = SizeToContent.Height;
+    }
+
+    private void ExitWidgetMode()
+    {
+        if (WindowStyle != WindowStyle.None)
+            return;
+
+        SizeToContent = SizeToContent.Manual;
+        WindowStyle = WindowStyle.SingleBorderWindow;
+        ResizeMode = ResizeMode.CanResize;
+        Topmost = false;
+        MinWidth = 720;
+        MinHeight = 320;
+
+        if (!_normalBounds.IsEmpty)
+        {
+            Width = _normalBounds.Width;
+            Height = _normalBounds.Height;
+        }
+        else
+        {
+            Width = 940;
+            Height = 660;
+        }
+    }
 
     // ---- Drag-and-drop reordering of the interface list ----
 

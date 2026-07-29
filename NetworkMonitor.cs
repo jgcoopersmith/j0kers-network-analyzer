@@ -7,6 +7,17 @@ using System.Windows.Threading;
 
 namespace NetAnalyzer;
 
+/// <summary>How the interface list is drawn.</summary>
+public enum ViewMode
+{
+    /// <summary>Segmented spectrum meters with peak hold.</summary>
+    Bars,
+    /// <summary>Right-to-left flowing ribbon.</summary>
+    Stream,
+    /// <summary>Compact always-on-top panel: ribbons and rates for the selected interfaces only.</summary>
+    Widget,
+}
+
 /// <summary>Polls the OS interface counters on a configurable interval and publishes per-NIC meters.</summary>
 public sealed class NetworkMonitor : INotifyPropertyChanged
 {
@@ -26,7 +37,7 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
     private bool _showLoopback;
     private bool _hideFilterAdapters = true;
     private bool _useBits;
-    private bool _streamView;
+    private ViewMode _mode = ViewMode.Bars;
     private double _streamSpeed = 60;
     private bool _minimizeOnClose;
     private bool _minimizeToTray;
@@ -106,18 +117,26 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
         }
     }
 
-    /// <summary>False shows segmented spectrum bars; true shows the scrolling stream ribbon.</summary>
-    public bool StreamView
+    /// <summary>Which of the three presentations is active.</summary>
+    public ViewMode Mode
     {
-        get => _streamView;
+        get => _mode;
         set
         {
-            if (Set(ref _streamView, value))
+            if (Set(ref _mode, value))
                 OnPropertyChanged(nameof(ViewModeText));
         }
     }
 
-    public string ViewModeText => _streamView ? "View: Stream" : "View: Bars";
+    /// <summary>Advances Bars → Stream → Widget → Bars.</summary>
+    public void CycleMode() => Mode = _mode switch
+    {
+        ViewMode.Bars => ViewMode.Stream,
+        ViewMode.Stream => ViewMode.Widget,
+        _ => ViewMode.Bars,
+    };
+
+    public string ViewModeText => $"View: {_mode}";
 
     /// <summary>When set, closing the window minimizes it to the taskbar instead of exiting.</summary>
     public bool MinimizeOnClose
@@ -154,7 +173,10 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
         _showInactive = s.ShowInactive;
         _showLoopback = s.ShowLoopback;
         _hideFilterAdapters = s.HideFilterAdapters;
-        _streamView = s.StreamView;
+        // Fall back to the old boolean when reading a settings file written before view modes.
+        _mode = Enum.TryParse<ViewMode>(s.ViewMode, ignoreCase: true, out var mode)
+            ? mode
+            : s.StreamView ? ViewMode.Stream : ViewMode.Bars;
         _streamSpeed = Math.Clamp(s.StreamSpeed, 10, 300);
         _minimizeOnClose = s.MinimizeOnClose;
         _minimizeToTray = s.MinimizeToTray;
@@ -172,7 +194,7 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
         foreach (var name in new[]
         {
             nameof(IntervalMs), nameof(IntervalText), nameof(UseBits), nameof(ShowInactive),
-            nameof(ShowLoopback), nameof(HideFilterAdapters), nameof(StreamView),
+            nameof(ShowLoopback), nameof(HideFilterAdapters), nameof(Mode),
             nameof(ViewModeText), nameof(StreamSpeed),
             nameof(MinimizeOnClose), nameof(MinimizeToTray),
         })
@@ -189,7 +211,8 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
         ShowInactive = _showInactive,
         ShowLoopback = _showLoopback,
         HideFilterAdapters = _hideFilterAdapters,
-        StreamView = _streamView,
+        ViewMode = _mode.ToString(),
+        StreamView = _mode == NetAnalyzer.ViewMode.Stream,
         StreamSpeed = _streamSpeed,
         MinimizeOnClose = _minimizeOnClose,
         MinimizeToTray = _minimizeToTray,

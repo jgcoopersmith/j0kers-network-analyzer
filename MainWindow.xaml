@@ -10,6 +10,36 @@
 
     <Window.Resources>
         <local:BoolToVisibilityConverter x:Key="BoolToVis"/>
+        <local:EnumVisibilityConverter x:Key="ModeVis"/>
+
+        <!-- Compact row for widget mode: name, ribbon, and the two rates. -->
+        <DataTemplate x:Key="WidgetTemplate" DataType="{x:Type local:InterfaceMeter}">
+            <Grid Margin="0,0,0,5"
+                  Visibility="{Binding ShowActivity, Converter={StaticResource BoolToVis}}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="78"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="86"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0" Text="{Binding Name}" FontSize="11"
+                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                           Margin="0,0,8,0" ToolTip="{Binding Description}"/>
+
+                <local:StreamGraph Grid.Column="1" Height="30"
+                                   PixelsPerSecond="{Binding DataContext.StreamSpeed,
+                                       RelativeSource={RelativeSource AncestorType=Window}}"
+                                   InLevel="{Binding InLevel, Mode=OneWay}"
+                                   OutLevel="{Binding OutLevel, Mode=OneWay}"/>
+
+                <StackPanel Grid.Column="2" Margin="8,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding InRateText, Mode=OneWay}" FontFamily="Consolas"
+                               FontSize="11" TextAlignment="Right" Foreground="#3AD17E"/>
+                    <TextBlock Text="{Binding OutRateText, Mode=OneWay}" FontFamily="Consolas"
+                               FontSize="11" TextAlignment="Right" Foreground="#3AC6E8"/>
+                </StackPanel>
+            </Grid>
+        </DataTemplate>
 
         <!-- One card per network interface. -->
         <DataTemplate x:Key="InterfaceTemplate" DataType="{x:Type local:InterfaceMeter}">
@@ -168,10 +198,10 @@
                                            Margin="0,0,0,5"
                                            Level="{Binding InLevel, Mode=OneWay}"
                                            Peak="{Binding InPeak, Mode=OneWay}"
-                                           Visibility="{Binding DataContext.StreamView,
+                                           Visibility="{Binding DataContext.Mode,
                                                RelativeSource={RelativeSource AncestorType=Window},
-                                               Converter={StaticResource BoolToVis},
-                                               ConverterParameter=invert}"/>
+                                               Converter={StaticResource ModeVis},
+                                               ConverterParameter=Bars}"/>
                         <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding InRateText, Mode=OneWay}"
                                    FontFamily="Consolas" FontSize="12" TextAlignment="Right"
                                    VerticalAlignment="Center" Margin="8,0,0,0"/>
@@ -186,10 +216,10 @@
                         <local:SpectrumBar Grid.Row="1" Grid.Column="1" Height="18" Palette="Outbound"
                                            Level="{Binding OutLevel, Mode=OneWay}"
                                            Peak="{Binding OutPeak, Mode=OneWay}"
-                                           Visibility="{Binding DataContext.StreamView,
+                                           Visibility="{Binding DataContext.Mode,
                                                RelativeSource={RelativeSource AncestorType=Window},
-                                               Converter={StaticResource BoolToVis},
-                                               ConverterParameter=invert}"/>
+                                               Converter={StaticResource ModeVis},
+                                               ConverterParameter=Bars}"/>
                         <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding OutRateText, Mode=OneWay}"
                                    FontFamily="Consolas" FontSize="12" TextAlignment="Right"
                                    VerticalAlignment="Center" Margin="8,0,0,0"/>
@@ -205,9 +235,10 @@
                                                RelativeSource={RelativeSource AncestorType=Window}}"
                                            InLevel="{Binding InLevel, Mode=OneWay}"
                                            OutLevel="{Binding OutLevel, Mode=OneWay}"
-                                           Visibility="{Binding DataContext.StreamView,
+                                           Visibility="{Binding DataContext.Mode,
                                                RelativeSource={RelativeSource AncestorType=Window},
-                                               Converter={StaticResource BoolToVis}}"/>
+                                               Converter={StaticResource ModeVis},
+                                               ConverterParameter=Stream}"/>
                     </Grid>
                 </Grid>
             </Border>
@@ -225,7 +256,8 @@
         </Grid.RowDefinitions>
 
         <!-- Menu bar -->
-        <Border Grid.Row="0" Background="#171C24" Padding="6,2">
+        <Border Grid.Row="0" Background="#171C24" Padding="6,2"
+                Visibility="{Binding Mode, Converter={StaticResource ModeVis}, ConverterParameter=!Widget}">
             <Menu>
                 <MenuItem Header="_File">
                     <MenuItem Header="Minimize when closed" IsCheckable="True"
@@ -241,7 +273,8 @@
         </Border>
 
         <!-- Banner -->
-        <Border Grid.Row="1" Padding="16,11" BorderBrush="#2C3440" BorderThickness="0,0,0,1">
+        <Border Grid.Row="1" Padding="16,11" BorderBrush="#2C3440" BorderThickness="0,0,0,1"
+                Visibility="{Binding Mode, Converter={StaticResource ModeVis}, ConverterParameter=!Widget}">
             <Border.Background>
                 <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
                     <GradientStop Color="#16202B" Offset="0"/>
@@ -254,11 +287,18 @@
                            Foreground="{StaticResource FgDim}"
                            Text="live interface throughput"/>
                 <StackPanel Orientation="Horizontal">
-                    <!-- Signal mark: three rising bars echoing the spectrum meters below -->
-                    <Canvas Width="20" Height="18" VerticalAlignment="Center" Margin="0,0,10,0">
-                        <Rectangle Canvas.Left="0" Canvas.Top="10" Width="4" Height="8" Fill="#3AD17E"/>
-                        <Rectangle Canvas.Left="7" Canvas.Top="5" Width="4" Height="13" Fill="#E8C44A"/>
-                        <Rectangle Canvas.Left="14" Canvas.Top="0" Width="4" Height="18" Fill="#F24E4E"/>
+                    <!-- Hub-and-spoke mark, matching the application icon -->
+                    <Canvas Width="24" Height="22" VerticalAlignment="Center" Margin="0,0,11,0">
+                        <Line X1="12" Y1="11" X2="3" Y2="4" Stroke="#4EC9F5" StrokeThickness="1.6"/>
+                        <Line X1="12" Y1="11" X2="21" Y2="4" Stroke="#4EC9F5" StrokeThickness="1.6"/>
+                        <Line X1="12" Y1="11" X2="3" Y2="18" Stroke="#4EC9F5" StrokeThickness="1.6"/>
+                        <Line X1="12" Y1="11" X2="21" Y2="18" Stroke="#4EC9F5" StrokeThickness="1.6"/>
+                        <Ellipse Canvas.Left="0" Canvas.Top="1" Width="6" Height="6" Fill="#3AD17E"/>
+                        <Ellipse Canvas.Left="18" Canvas.Top="1" Width="6" Height="6" Fill="#E8C44A"/>
+                        <Ellipse Canvas.Left="0" Canvas.Top="15" Width="6" Height="6" Fill="#4EC9F5"/>
+                        <Ellipse Canvas.Left="18" Canvas.Top="15" Width="6" Height="6" Fill="#F24E4E"/>
+                        <Ellipse Canvas.Left="6" Canvas.Top="5" Width="12" Height="12" Fill="#EBF7FF"/>
+                        <Ellipse Canvas.Left="9" Canvas.Top="8" Width="6" Height="6" Fill="#4EC9F5"/>
                     </Canvas>
                     <TextBlock VerticalAlignment="Center">
                         <Run Text="j0kers" FontSize="19" FontWeight="Bold" Foreground="{StaticResource Accent}"/>
@@ -270,7 +310,8 @@
 
         <!-- Toolbar -->
         <Border Grid.Row="2" Background="{StaticResource PanelAlt}" Padding="14,10"
-                BorderBrush="#2C3440" BorderThickness="0,0,0,1">
+                BorderBrush="#2C3440" BorderThickness="0,0,0,1"
+                Visibility="{Binding Mode, Converter={StaticResource ModeVis}, ConverterParameter=!Widget}">
             <WrapPanel Orientation="Horizontal">
                 <TextBlock Text="Poll every" VerticalAlignment="Center" Margin="0,0,8,0"/>
                 <Slider x:Name="IntervalSlider" Width="190" Minimum="100" Maximum="5000"
@@ -296,13 +337,14 @@
                           IsChecked="{Binding HideFilterAdapters, Mode=TwoWay}"
                           ToolTip="Hide the WFP/QoS filter entries Windows stacks on each real NIC"/>
 
-                <ToggleButton Content="{Binding ViewModeText, Mode=OneWay}" Width="96" Margin="0,0,8,0"
-                              IsChecked="{Binding StreamView, Mode=TwoWay}"
-                              ToolTip="Switch between segmented bars and the scrolling stream"/>
+                <Button Content="{Binding ViewModeText, Mode=OneWay}" Width="104" Margin="0,0,8,0"
+                        Click="CycleView_Click"
+                        ToolTip="Cycle bars → stream → widget"/>
 
-                <!-- Flow speed only means anything in stream mode. -->
+                <!-- Flow speed only means anything where a ribbon is drawn. -->
                 <StackPanel Orientation="Horizontal" Margin="0,0,10,0"
-                            Visibility="{Binding StreamView, Converter={StaticResource BoolToVis}}">
+                            Visibility="{Binding Mode, Converter={StaticResource ModeVis},
+                                ConverterParameter=Stream|Widget}">
                     <TextBlock Text="Flow" VerticalAlignment="Center" Margin="0,0,6,0"
                                Foreground="{StaticResource FgDim}"/>
                     <Slider Width="90" Minimum="15" Maximum="200" VerticalAlignment="Center"
@@ -317,7 +359,8 @@
         </Border>
 
         <!-- Interface list -->
-        <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" Padding="14,12,14,0">
+        <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" Padding="14,12,14,0"
+                      Visibility="{Binding Mode, Converter={StaticResource ModeVis}, ConverterParameter=!Widget}">
             <Grid>
                 <ItemsControl x:Name="InterfaceList" ItemsSource="{Binding Interfaces}"
                               ItemTemplate="{StaticResource InterfaceTemplate}"
@@ -345,7 +388,8 @@
 
         <!-- Aggregate footer -->
         <Border Grid.Row="4" Background="{StaticResource PanelAlt}" Padding="14,7"
-                BorderBrush="#2C3440" BorderThickness="0,1,0,0">
+                BorderBrush="#2C3440" BorderThickness="0,1,0,0"
+                Visibility="{Binding Mode, Converter={StaticResource ModeVis}, ConverterParameter=!Widget}">
             <DockPanel>
                 <TextBlock DockPanel.Dock="Right" Foreground="{StaticResource FgDim}" FontSize="11"
                            VerticalAlignment="Center">
@@ -364,6 +408,29 @@
                                FontSize="12" VerticalAlignment="Center"/>
                 </StackPanel>
             </DockPanel>
+        </Border>
+
+        <!--
+            Widget mode: spans every row so the window shrinks to just this panel once the
+            chrome above collapses. Drag anywhere to move it, double-click to move on.
+        -->
+        <Border Grid.Row="0" Grid.RowSpan="5" Background="{StaticResource Bg}"
+                BorderBrush="#3C4657" BorderThickness="1" Padding="10,8"
+                MouseLeftButtonDown="Widget_MouseLeftButtonDown"
+                Visibility="{Binding Mode, Converter={StaticResource ModeVis}, ConverterParameter=Widget}">
+            <StackPanel>
+                <DockPanel Margin="0,0,0,7">
+                    <TextBlock DockPanel.Dock="Right" Text="{Binding AggregateInText, Mode=OneWay}"
+                               FontFamily="Consolas" FontSize="11" Foreground="#3AD17E"
+                               VerticalAlignment="Center"/>
+                    <TextBlock Text="j0kers" FontWeight="Bold" FontSize="11"
+                               Foreground="{StaticResource Accent}" VerticalAlignment="Center"
+                               ToolTip="Double-click to leave widget mode"/>
+                </DockPanel>
+
+                <ItemsControl ItemsSource="{Binding Interfaces}"
+                              ItemTemplate="{StaticResource WidgetTemplate}"/>
+            </StackPanel>
         </Border>
     </Grid>
 </Window>

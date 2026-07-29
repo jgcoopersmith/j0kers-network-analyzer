@@ -26,6 +26,10 @@ public sealed class AppSettings
     /// <summary>Defaults on: the WFP/QoS pseudo-adapters are noise for almost every user.</summary>
     public bool HideFilterAdapters { get; set; } = true;
 
+    /// <summary>"Bars", "Stream" or "Widget".</summary>
+    public string ViewMode { get; set; } = "";
+
+    /// <summary>Superseded by <see cref="ViewMode"/>; still read so older files keep working.</summary>
     public bool StreamView { get; set; }
     public double StreamSpeed { get; set; } = 60;
     public bool MinimizeOnClose { get; set; }

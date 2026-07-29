@@ -11,6 +11,7 @@
     <AssemblyName>NetAnalyzer</AssemblyName>
     <RootNamespace>NetAnalyzer</RootNamespace>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationIcon>app.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,6 +21,9 @@
     -->
     <Using Remove="System.Windows.Forms"/>
     <Using Remove="System.Drawing"/>
+
+    <!-- Also copied out so the tray can load the 16px frame at runtime. -->
+    <Content Include="app.ico" CopyToOutputDirectory="PreserveNewest"/>
   </ItemGroup>
 
 </Project>

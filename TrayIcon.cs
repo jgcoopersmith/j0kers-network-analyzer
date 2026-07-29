@@ -1,5 +1,6 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.IO;
 using System.Runtime.InteropServices;
 using Forms = System.Windows.Forms;
 
@@ -55,8 +56,27 @@ public sealed class TrayIcon : IDisposable
 
     public void Hide() => _icon.Visible = false;
 
-    /// <summary>Draws the same three-bar signal mark used in the app banner.</summary>
+    /// <summary>
+    /// Prefers the app icon so the tray matches the taskbar, picking the frame sized for the
+    /// notification area. Falls back to drawing one if the file is missing from the output.
+    /// </summary>
     private Icon BuildIcon()
+    {
+        try
+        {
+            var path = Path.Combine(AppContext.BaseDirectory, "app.ico");
+            if (File.Exists(path))
+                return new Icon(path, Forms.SystemInformation.SmallIconSize);
+        }
+        catch (Exception e) when (e is IOException or ArgumentException)
+        {
+        }
+
+        return DrawFallbackIcon();
+    }
+
+    /// <summary>Three rising bars, used only if the icon file cannot be loaded.</summary>
+    private Icon DrawFallbackIcon()
     {
         using var bmp = new Bitmap(32, 32);
         using (var g = Graphics.FromImage(bmp))

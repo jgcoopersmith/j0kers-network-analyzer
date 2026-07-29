@@ -13,8 +13,13 @@ marker that slides back after a burst.
 below. The ribbon fattens with throughput and thins to a thread at idle. Scrolling is driven by
 wall-clock time, so the flow stays evenly paced at any polling interval.
 
-Toggle between them with the **View** button. In stream mode a **Flow** slider sets the scroll
-speed (15–200 px/sec).
+**Widget** — a small always-on-top panel with no window chrome, showing only the interfaces whose
+activity switch is on: name, ribbon, and the in/out rates. Drag anywhere on it to move it,
+double-click to leave. Its height follows the number of selected interfaces, so unchecking the
+quiet ones shrinks it.
+
+The **View** button cycles bars → stream → widget. In stream and widget modes a **Flow** slider
+sets the scroll speed (15–200 px/sec).
 
 ## Readouts
 
