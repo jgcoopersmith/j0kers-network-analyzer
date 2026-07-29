@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace NetAnalyzer;
 
@@ -15,10 +16,28 @@ public partial class MainWindow : Window
 
     private readonly TrayIcon _tray = new("j0kers Network Analyzer");
 
+    /// <summary>Coalesces bursts of preference changes into a single write.</summary>
+    private readonly DispatcherTimer _saveTimer = new() { Interval = TimeSpan.FromSeconds(1.5) };
+
     public MainWindow()
     {
         InitializeComponent();
         DataContext = _monitor;
+
+        var settings = SettingsStore.Load();
+        _monitor.ApplySettings(settings);
+        RestoreWindowBounds(settings);
+
+        _saveTimer.Tick += (_, _) =>
+        {
+            _saveTimer.Stop();
+            SaveSettings();
+        };
+        _monitor.SettingsChanged += () =>
+        {
+            _saveTimer.Stop();
+            _saveTimer.Start();
+        };
 
         _tray.RestoreRequested += RestoreFromTray;
         _tray.ExitRequested += () =>
@@ -32,9 +51,58 @@ public partial class MainWindow : Window
         StateChanged += MainWindow_StateChanged;
         Closed += (_, _) =>
         {
+            _saveTimer.Stop();
+            SaveSettings();
             _monitor.Stop();
             _tray.Dispose();
         };
+    }
+
+    private void SaveSettings()
+    {
+        var settings = _monitor.CaptureSettings();
+
+        // RestoreBounds holds the pre-maximize rectangle; Width/Height would report the
+        // maximized size and the window would come back the wrong size next launch.
+        var bounds = WindowState == WindowState.Normal
+            ? new Rect(Left, Top, Width, Height)
+            : RestoreBounds;
+
+        settings.WindowLeft = bounds.Left;
+        settings.WindowTop = bounds.Top;
+        settings.WindowWidth = bounds.Width;
+        settings.WindowHeight = bounds.Height;
+        settings.WindowMaximized = WindowState == WindowState.Maximized;
+
+        SettingsStore.Save(settings);
+    }
+
+    private void RestoreWindowBounds(AppSettings s)
+    {
+        if (s.WindowWidth >= MinWidth && s.WindowHeight >= MinHeight)
+        {
+            Width = s.WindowWidth;
+            Height = s.WindowHeight;
+        }
+
+        // Only honour a saved position that still lands on a connected display — a monitor may
+        // have been unplugged since, which would otherwise put the window out of reach.
+        if (!double.IsNaN(s.WindowLeft) && !double.IsNaN(s.WindowTop))
+        {
+            var screen = new Rect(
+                SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
+                SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
+
+            if (screen.Contains(new Rect(s.WindowLeft, s.WindowTop, Math.Min(Width, screen.Width), 40)))
+            {
+                WindowStartupLocation = WindowStartupLocation.Manual;
+                Left = s.WindowLeft;
+                Top = s.WindowTop;
+            }
+        }
+
+        if (s.WindowMaximized)
+            WindowState = WindowState.Maximized;
     }
 
     private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)

@@ -36,6 +36,15 @@ Also included: pause/resume, reset totals, and filters for inactive adapters and
 Adapters that appear or disappear mid-run — a VPN coming up, a USB NIC unplugged — are added and
 removed automatically.
 
+## Settings
+
+Preferences persist across restarts in
+`%APPDATA%\j0kers Network Analyzer\settings.json`: polling interval, view mode, flow speed,
+unit and filter toggles, the close/tray behaviour, window size and position, the drag-ordered
+interface list, and each interface's activity switch. Writes are debounced and also happen on
+exit. Adapters that are filtered out or unplugged keep their saved state for next time, and a
+saved window position is only restored if it still lands on a connected display.
+
 ## Build
 
 ```

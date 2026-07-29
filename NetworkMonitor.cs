@@ -12,6 +12,13 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
 {
     private readonly DispatcherTimer _timer;
     private readonly Dictionary<string, InterfaceMeter> _byId = new();
+
+    /// <summary>Saved per-interface state, keyed by adapter id, including adapters not currently visible.</summary>
+    private readonly Dictionary<string, InterfaceSetting> _saved = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Saved display order as adapter ids; position in this list is the sort rank.</summary>
+    private List<string> _savedOrder = new();
+
     private long _lastTimestamp;
     private bool _polling;
     private int _intervalMs = 500;
@@ -30,9 +37,19 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
             Interval = TimeSpan.FromMilliseconds(_intervalMs),
         };
         _timer.Tick += async (_, _) => await PollAsync();
+
+        // A drag reorder shows up here as a Move; that is a preference worth persisting.
+        Interfaces.CollectionChanged += (_, e) =>
+        {
+            if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Move)
+                SettingsChanged?.Invoke();
+        };
     }
 
     public ObservableCollection<InterfaceMeter> Interfaces { get; } = new();
+
+    /// <summary>Raised whenever something worth writing to the settings file changes.</summary>
+    public event Action? SettingsChanged;
 
     /// <summary>Polling interval in milliseconds; takes effect on the next tick.</summary>
     public int IntervalMs
@@ -118,6 +135,101 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
         set => Set(ref _streamSpeed, Math.Clamp(value, 10, 300));
     }
 
+    /// <summary>Restores saved preferences. Call before <see cref="Start"/>.</summary>
+    public void ApplySettings(AppSettings s)
+    {
+        // Assign fields directly: going through the setters would fire SettingsChanged for
+        // every value and write the file back out during startup.
+        _intervalMs = Math.Clamp(s.IntervalMs, 100, 10000);
+        _timer.Interval = TimeSpan.FromMilliseconds(_intervalMs);
+        _useBits = s.UseBits;
+        _showInactive = s.ShowInactive;
+        _showLoopback = s.ShowLoopback;
+        _streamView = s.StreamView;
+        _streamSpeed = Math.Clamp(s.StreamSpeed, 10, 300);
+        _minimizeOnClose = s.MinimizeOnClose;
+        _minimizeToTray = s.MinimizeToTray;
+
+        _saved.Clear();
+        _savedOrder = new List<string>();
+        foreach (var i in s.Interfaces)
+        {
+            if (string.IsNullOrEmpty(i.Id) || _saved.ContainsKey(i.Id))
+                continue;
+            _saved[i.Id] = i;
+            _savedOrder.Add(i.Id);
+        }
+
+        foreach (var name in new[]
+        {
+            nameof(IntervalMs), nameof(IntervalText), nameof(UseBits), nameof(ShowInactive),
+            nameof(ShowLoopback), nameof(StreamView), nameof(ViewModeText), nameof(StreamSpeed),
+            nameof(MinimizeOnClose), nameof(MinimizeToTray),
+        })
+        {
+            OnPropertyChanged(name);
+        }
+    }
+
+    /// <summary>Snapshots current preferences for writing to disk.</summary>
+    public AppSettings CaptureSettings() => new()
+    {
+        IntervalMs = _intervalMs,
+        UseBits = _useBits,
+        ShowInactive = _showInactive,
+        ShowLoopback = _showLoopback,
+        StreamView = _streamView,
+        StreamSpeed = _streamSpeed,
+        MinimizeOnClose = _minimizeOnClose,
+        MinimizeToTray = _minimizeToTray,
+        Interfaces = CaptureInterfaces(),
+    };
+
+    /// <summary>
+    /// Visible interfaces first, in display order, followed by adapters we know about but are not
+    /// showing right now — a filtered-out or unplugged NIC keeps its settings for next time.
+    /// </summary>
+    private List<InterfaceSetting> CaptureInterfaces()
+    {
+        var list = new List<InterfaceSetting>(Interfaces.Count + _saved.Count);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var m in Interfaces)
+        {
+            list.Add(new InterfaceSetting { Id = m.Id, Name = m.Name, ShowActivity = m.ShowActivity });
+            seen.Add(m.Id);
+        }
+
+        foreach (var id in _savedOrder)
+        {
+            if (seen.Add(id) && _saved.TryGetValue(id, out var saved))
+                list.Add(saved);
+        }
+
+        return list;
+    }
+
+    /// <summary>
+    /// Where a newly discovered adapter belongs, per the saved order. Adapters with no saved
+    /// position sort to the end, so a NIC that appears mid-session lands at the bottom.
+    /// </summary>
+    private int RankedIndex(string id)
+    {
+        var rank = OrderRank(id);
+        for (var i = 0; i < Interfaces.Count; i++)
+        {
+            if (OrderRank(Interfaces[i].Id) > rank)
+                return i;
+        }
+        return Interfaces.Count;
+    }
+
+    private int OrderRank(string id)
+    {
+        var index = _savedOrder.IndexOf(id);
+        return index < 0 ? int.MaxValue : index;
+    }
+
     public void Start()
     {
         _lastTimestamp = Stopwatch.GetTimestamp();
@@ -193,9 +305,14 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
             seen.Add(s.Nic.Id);
             if (!_byId.TryGetValue(s.Nic.Id, out var meter))
             {
-                meter = new InterfaceMeter(s.Nic) { UseBits = _useBits };
+                meter = new InterfaceMeter(s.Nic)
+                {
+                    UseBits = _useBits,
+                    ShowActivity = !_saved.TryGetValue(s.Nic.Id, out var saved) || saved.ShowActivity,
+                };
+                meter.PropertyChanged += Meter_PropertyChanged;
                 _byId[s.Nic.Id] = meter;
-                Interfaces.Add(meter);
+                Interfaces.Insert(RankedIndex(s.Nic.Id), meter);
             }
             meter.Update(s.Status, s.BytesReceived, s.BytesSent, elapsed);
         }
@@ -206,6 +323,10 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
             var m = Interfaces[i];
             if (seen.Contains(m.Id))
                 continue;
+
+            // Keep this adapter's preferences on file even though it is going out of view.
+            RememberInterface(m);
+            m.PropertyChanged -= Meter_PropertyChanged;
             _byId.Remove(m.Id);
             Interfaces.RemoveAt(i);
         }
@@ -214,9 +335,34 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
         OnPropertyChanged(nameof(AggregateOutText));
     }
 
+    /// <summary>Only the activity switch matters here; the rate properties change constantly.</summary>
+    private void Meter_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(InterfaceMeter.ShowActivity))
+            return;
+        if (sender is InterfaceMeter m)
+            RememberInterface(m);
+        SettingsChanged?.Invoke();
+    }
+
+    private void RememberInterface(InterfaceMeter m)
+    {
+        _saved[m.Id] = new InterfaceSetting { Id = m.Id, Name = m.Name, ShowActivity = m.ShowActivity };
+        if (!_savedOrder.Contains(m.Id))
+            _savedOrder.Add(m.Id);
+    }
+
     /// <summary>Forces a fresh enumeration after a filter change.</summary>
     private void Resync()
     {
+        // Hold on to the current order so toggling a filter doesn't scramble it.
+        foreach (var m in Interfaces)
+            RememberInterface(m);
+
+        _savedOrder = CaptureInterfaces().Select(i => i.Id).ToList();
+
+        foreach (var m in Interfaces)
+            m.PropertyChanged -= Meter_PropertyChanged;
         Interfaces.Clear();
         _byId.Clear();
         if (_timer.IsEnabled)
@@ -241,6 +387,8 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
             return false;
         field = value;
         OnPropertyChanged(name);
+        // Every property routed through Set is a persisted preference.
+        SettingsChanged?.Invoke();
         return true;
     }
 }
