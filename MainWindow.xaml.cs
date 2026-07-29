@@ -1,5 +1,7 @@
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Interop;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -74,6 +76,13 @@ public partial class MainWindow : Window
         };
         Closing += MainWindow_Closing;
         StateChanged += MainWindow_StateChanged;
+
+        // Re-pin whenever something could have knocked us out of the topmost band: another app
+        // taking activation (maximizing one does exactly this), our own handle being recreated,
+        // or a restore from minimized.
+        SourceInitialized += (_, _) => ReassertTopmost();
+        Activated += (_, _) => ReassertTopmost();
+        Deactivated += (_, _) => ReassertTopmost();
         Closed += (_, _) =>
         {
             _saveTimer.Stop();
@@ -180,6 +189,8 @@ public partial class MainWindow : Window
     {
         if (WindowState == WindowState.Minimized && _monitor.MinimizeToTray)
             HideToTray();
+        else
+            ReassertTopmost();
     }
 
     private void HideToTray()
@@ -195,9 +206,12 @@ public partial class MainWindow : Window
     {
         _inTray = false;
         Show();
+        // Setting ShowInTaskbar recreates the window handle, so topmost has to be re-applied
+        // after it rather than before.
         ShowInTaskbar = true;
         WindowState = WindowState.Normal;
         Activate();
+        UpdateTopmost();
         _tray.Hide();
         SaveSettings();
     }
@@ -272,7 +286,40 @@ public partial class MainWindow : Window
 
     /// <summary>A widget floats by definition; otherwise the File menu option decides.</summary>
     private void UpdateTopmost()
-        => Topmost = _monitor.Mode == ViewMode.Widget || _monitor.AlwaysOnTop;
+    {
+        Topmost = _monitor.Mode == ViewMode.Widget || _monitor.AlwaysOnTop;
+        ReassertTopmost();
+    }
+
+    /// <summary>
+    /// Pins the window to the topmost band directly. The WPF property alone is not reliable
+    /// here: toggling ShowInTaskbar for the tray recreates the window handle, switching
+    /// WindowStyle for widget mode restyles it, and another application taking activation can
+    /// leave us behind it — each of which can drop the topmost flag even though the property
+    /// still reads true. Never touches z-order when not pinned, since hoisting the window on
+    /// every deactivation would be worse than the bug.
+    /// </summary>
+    private void ReassertTopmost()
+    {
+        if (!Topmost)
+            return;
+
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero)
+            return;
+
+        SetWindowPos(hwnd, HwndTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate);
+    }
+
+    private static readonly IntPtr HwndTopmost = new(-1);
+    private const uint SwpNoSize = 0x0001;
+    private const uint SwpNoMove = 0x0002;
+    private const uint SwpNoActivate = 0x0010;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowPos(
+        IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
 
     private void EnterWidgetMode()
     {
