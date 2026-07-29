@@ -260,6 +260,10 @@
                 Visibility="{Binding Mode, Converter={StaticResource ModeVis}, ConverterParameter=!Widget}">
             <Menu>
                 <MenuItem Header="_File">
+                    <MenuItem Header="Always on top" IsCheckable="True"
+                              IsChecked="{Binding AlwaysOnTop, Mode=TwoWay}"
+                              ToolTip="Keep the window above other applications"/>
+                    <Separator/>
                     <MenuItem Header="Minimize when closed" IsCheckable="True"
                               IsChecked="{Binding MinimizeOnClose, Mode=TwoWay}"
                               ToolTip="Closing the window sends it to the taskbar instead of exiting"/>

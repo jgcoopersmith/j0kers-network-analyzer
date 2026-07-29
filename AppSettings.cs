@@ -32,6 +32,7 @@ public sealed class AppSettings
     /// <summary>Superseded by <see cref="ViewMode"/>; still read so older files keep working.</summary>
     public bool StreamView { get; set; }
     public double StreamSpeed { get; set; } = 60;
+    public bool AlwaysOnTop { get; set; }
     public bool MinimizeOnClose { get; set; }
     public bool MinimizeToTray { get; set; }
 

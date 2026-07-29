@@ -45,6 +45,8 @@ public partial class MainWindow : Window
         {
             if (e.PropertyName == nameof(NetworkMonitor.Mode))
                 ApplyViewMode();
+            else if (e.PropertyName == nameof(NetworkMonitor.AlwaysOnTop))
+                UpdateTopmost();
         };
 
         _tray.RestoreRequested += RestoreFromTray;
@@ -221,7 +223,13 @@ public partial class MainWindow : Window
             EnterWidgetMode();
         else
             ExitWidgetMode();
+
+        UpdateTopmost();
     }
+
+    /// <summary>A widget floats by definition; otherwise the File menu option decides.</summary>
+    private void UpdateTopmost()
+        => Topmost = _monitor.Mode == ViewMode.Widget || _monitor.AlwaysOnTop;
 
     private void EnterWidgetMode()
     {
@@ -234,7 +242,6 @@ public partial class MainWindow : Window
         WindowState = WindowState.Normal;
         WindowStyle = WindowStyle.None;
         ResizeMode = ResizeMode.NoResize;
-        Topmost = true;
         MinWidth = 0;
         MinHeight = 0;
         Width = 330;
@@ -250,7 +257,6 @@ public partial class MainWindow : Window
         SizeToContent = SizeToContent.Manual;
         WindowStyle = WindowStyle.SingleBorderWindow;
         ResizeMode = ResizeMode.CanResize;
-        Topmost = false;
         MinWidth = 720;
         MinHeight = 320;
 
