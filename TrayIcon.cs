@@ -64,9 +64,10 @@ public sealed class TrayIcon : IDisposable
     {
         try
         {
-            var path = Path.Combine(AppContext.BaseDirectory, "app.ico");
-            if (File.Exists(path))
-                return new Icon(path, Forms.SystemInformation.SmallIconSize);
+            using var stream = typeof(TrayIcon).Assembly
+                .GetManifestResourceStream("NetAnalyzer.app.ico");
+            if (stream is not null)
+                return new Icon(stream, Forms.SystemInformation.SmallIconSize);
         }
         catch (Exception e) when (e is IOException or ArgumentException)
         {

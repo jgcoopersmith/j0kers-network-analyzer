@@ -22,8 +22,11 @@
     <Using Remove="System.Windows.Forms"/>
     <Using Remove="System.Drawing"/>
 
-    <!-- Also copied out so the tray can load the 16px frame at runtime. -->
-    <Content Include="app.ico" CopyToOutputDirectory="PreserveNewest"/>
+    <!--
+      Embedded rather than copied beside the exe: the tray loads the 16px frame at runtime, and
+      a published single-file build should not depend on a loose icon travelling with it.
+    -->
+    <EmbeddedResource Include="app.ico"/>
   </ItemGroup>
 
 </Project>
