@@ -4,6 +4,14 @@ using System.Runtime.CompilerServices;
 
 namespace NetAnalyzer;
 
+/// <summary>Where a dragged interface would land relative to this one.</summary>
+public enum DropHint
+{
+    None,
+    Above,
+    Below,
+}
+
 /// <summary>Live throughput state for a single network interface.</summary>
 public sealed class InterfaceMeter : INotifyPropertyChanged
 {
@@ -22,6 +30,8 @@ public sealed class InterfaceMeter : INotifyPropertyChanged
     private double _totalIn, _totalOut;
     private double _scaleMax = MinScaleBytesPerSecond;
     private bool _isUp;
+    private bool _showActivity = true;
+    private DropHint _dropHint = DropHint.None;
     private string _status = "";
 
     public InterfaceMeter(NetworkInterface nic)
@@ -66,6 +76,26 @@ public sealed class InterfaceMeter : INotifyPropertyChanged
     public double ScaleMax { get => _scaleMax; private set => Set(ref _scaleMax, value); }
 
     public bool UseBits { get; set; }
+
+    /// <summary>
+    /// Whether this interface draws its meters. Turning it off collapses the card to a single
+    /// header line with an inline rate summary — counters and totals keep running underneath.
+    /// </summary>
+    public bool ShowActivity
+    {
+        get => _showActivity;
+        set => Set(ref _showActivity, value);
+    }
+
+    /// <summary>Drives the insertion marker drawn above or below this card while dragging.</summary>
+    public DropHint DropHint
+    {
+        get => _dropHint;
+        set => Set(ref _dropHint, value);
+    }
+
+    /// <summary>Compact one-line rate readout, shown in the header while the meters are collapsed.</summary>
+    public string SummaryText => $"↓ {Rate.Format(InRate, UseBits)}    ↑ {Rate.Format(OutRate, UseBits)}";
 
     // Display strings, refreshed alongside the numeric values.
     public string InRateText => Rate.Format(InRate, UseBits);
@@ -176,6 +206,7 @@ public sealed class InterfaceMeter : INotifyPropertyChanged
         OnPropertyChanged(nameof(TotalInText));
         OnPropertyChanged(nameof(TotalOutText));
         OnPropertyChanged(nameof(ScaleText));
+        OnPropertyChanged(nameof(SummaryText));
     }
 
     /// <summary>Called when the bytes/bits display toggle changes.</summary>

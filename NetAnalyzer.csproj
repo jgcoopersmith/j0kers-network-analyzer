@@ -6,9 +6,20 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <!-- For NotifyIcon: WPF has no system-tray primitive of its own. -->
+    <UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>NetAnalyzer</AssemblyName>
     <RootNamespace>NetAnalyzer</RootNamespace>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      Enabling WinForms pulls these in as global usings, which makes Color, Point and
+      Application ambiguous against their WPF counterparts. TrayIcon.cs imports them locally.
+    -->
+    <Using Remove="System.Windows.Forms"/>
+    <Using Remove="System.Drawing"/>
+  </ItemGroup>
 
 </Project>

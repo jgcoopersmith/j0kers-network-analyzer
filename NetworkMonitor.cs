@@ -21,6 +21,7 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
     private bool _streamView;
     private double _streamSpeed = 60;
     private bool _minimizeOnClose;
+    private bool _minimizeToTray;
 
     public NetworkMonitor()
     {
@@ -98,6 +99,16 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
     {
         get => _minimizeOnClose;
         set => Set(ref _minimizeOnClose, value);
+    }
+
+    /// <summary>
+    /// When set, minimizing hides the window into the notification area rather than the taskbar.
+    /// Also applies when closing, if <see cref="MinimizeOnClose"/> is on.
+    /// </summary>
+    public bool MinimizeToTray
+    {
+        get => _minimizeToTray;
+        set => Set(ref _minimizeToTray, value);
     }
 
     /// <summary>How fast the stream ribbon scrolls, in pixels per second.</summary>

@@ -119,6 +119,34 @@
             <Setter Property="Foreground" Value="{StaticResource Fg}"/>
         </Style>
 
+        <!-- Oversized checkbox used as the per-interface activity switch. -->
+        <Style x:Key="BigCheckBox" TargetType="CheckBox">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <!-- Size comes from the CheckBox itself so collapsed cards can shrink it. -->
+                        <Border x:Name="Box" CornerRadius="5"
+                                Background="#151A21" BorderBrush="#3C4657" BorderThickness="2">
+                            <TextBlock x:Name="Tick" Text="&#x2713;" FontWeight="Bold"
+                                       FontSize="{TemplateBinding FontSize}"
+                                       Foreground="{StaticResource Accent}" Visibility="Collapsed"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Tick" Property="Visibility" Value="Visible"/>
+                                <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                <Setter TargetName="Box" Property="Background" Value="#12303F"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Box" Property="BorderBrush" Value="#6FD8FF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style TargetType="ToggleButton">
             <Setter Property="Foreground" Value="{StaticResource Fg}"/>
             <Setter Property="Background" Value="#2B333F"/>

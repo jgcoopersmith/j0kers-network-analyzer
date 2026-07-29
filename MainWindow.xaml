@@ -13,19 +13,92 @@
 
         <!-- One card per network interface. -->
         <DataTemplate x:Key="InterfaceTemplate" DataType="{x:Type local:InterfaceMeter}">
-            <Border Background="{StaticResource Panel}" CornerRadius="6" Padding="14,11"
-                    Margin="0,0,0,10" BorderBrush="#262D38" BorderThickness="1">
+            <!--
+                Rows 0 and 2 are fixed-height insertion markers for drag reordering. They are
+                always present so showing one never shifts the layout.
+            -->
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="3"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="3"/>
+                </Grid.RowDefinitions>
+
+                <Border Grid.Row="0" CornerRadius="2" Background="Transparent">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding DropHint}" Value="Above">
+                                    <Setter Property="Background" Value="{StaticResource Accent}"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                </Border>
+                <Border Grid.Row="2" CornerRadius="2" Background="Transparent">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding DropHint}" Value="Below">
+                                    <Setter Property="Background" Value="{StaticResource Accent}"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                </Border>
+
+            <Border Grid.Row="1" Background="{StaticResource Panel}" CornerRadius="6"
+                    Margin="0,0,0,4" BorderBrush="#262D38" BorderThickness="1">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Padding" Value="14,11"/>
+                        <Style.Triggers>
+                            <!-- Collapsed cards shed most of their padding to pack in tightly. -->
+                            <DataTrigger Binding="{Binding ShowActivity}" Value="False">
+                                <Setter Property="Padding" Value="9,3"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
                 <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
+                    <!-- Activity switch: off collapses this card to its header line -->
+                    <CheckBox Grid.Column="0" Grid.Row="0" Grid.RowSpan="3"
+                              IsChecked="{Binding ShowActivity, Mode=TwoWay}"
+                              VerticalAlignment="Center" Margin="0,0,14,0"
+                              ToolTip="Show or hide the activity view for this interface">
+                        <CheckBox.Style>
+                            <Style TargetType="CheckBox" BasedOn="{StaticResource BigCheckBox}">
+                                <Setter Property="Width" Value="26"/>
+                                <Setter Property="Height" Value="26"/>
+                                <Setter Property="FontSize" Value="17"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ShowActivity}" Value="False">
+                                        <Setter Property="Width" Value="17"/>
+                                        <Setter Property="Height" Value="17"/>
+                                        <Setter Property="FontSize" Value="11"/>
+                                        <Setter Property="Margin" Value="0,0,10,0"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </CheckBox.Style>
+                    </CheckBox>
+
                     <!-- Header: adapter identity and link info -->
-                    <DockPanel Grid.Row="0" Margin="0,0,0,9">
+                    <DockPanel Grid.Column="1" Grid.Row="0">
+                        <!-- Link detail is the first thing to go when the card collapses. -->
                         <TextBlock DockPanel.Dock="Right" Foreground="{StaticResource FgDim}"
-                                   FontSize="11" VerticalAlignment="Center">
+                                   FontSize="11" VerticalAlignment="Center"
+                                   Visibility="{Binding ShowActivity, Converter={StaticResource BoolToVis}}">
                             <Run Text="{Binding InterfaceType, Mode=OneWay}"/>
                             <Run Text="·"/>
                             <Run Text="{Binding LinkSpeedText, Mode=OneWay}"/>
@@ -45,11 +118,28 @@
                                     </Style>
                                 </Ellipse.Style>
                             </Ellipse>
-                            <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="SemiBold"
-                                       VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
+                                       VerticalAlignment="Center">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="FontSize" Value="13"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding ShowActivity}" Value="False">
+                                                <Setter Property="FontSize" Value="11.5"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
                             <TextBlock Text="{Binding Description}" FontSize="11" Margin="9,0,0,0"
                                        Foreground="{StaticResource FgDim}" VerticalAlignment="Center"
-                                       TextTrimming="CharacterEllipsis" MaxWidth="320"/>
+                                       TextTrimming="CharacterEllipsis" MaxWidth="320"
+                                       Visibility="{Binding ShowActivity, Converter={StaticResource BoolToVis}}"/>
+                            <!-- Stands in for the meters while the card is collapsed -->
+                            <TextBlock Text="{Binding SummaryText, Mode=OneWay}" Margin="14,0,0,0"
+                                       FontFamily="Consolas" FontSize="11" VerticalAlignment="Center"
+                                       Visibility="{Binding ShowActivity, Converter={StaticResource BoolToVis},
+                                           ConverterParameter=invert}"/>
                         </StackPanel>
                     </DockPanel>
 
@@ -58,7 +148,8 @@
                         spectrum bar; in stream mode the bars collapse and a single ribbon spans
                         both rows in the same column, so labels and readouts stay put either way.
                     -->
-                    <Grid Grid.Row="1" Grid.RowSpan="2">
+                    <Grid Grid.Column="1" Grid.Row="1" Grid.RowSpan="2" Margin="0,9,0,0"
+                          Visibility="{Binding ShowActivity, Converter={StaticResource BoolToVis}}">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
@@ -120,6 +211,7 @@
                     </Grid>
                 </Grid>
             </Border>
+            </Grid>
         </DataTemplate>
     </Window.Resources>
 
@@ -139,6 +231,9 @@
                     <MenuItem Header="Minimize when closed" IsCheckable="True"
                               IsChecked="{Binding MinimizeOnClose, Mode=TwoWay}"
                               ToolTip="Closing the window sends it to the taskbar instead of exiting"/>
+                    <MenuItem Header="Minimize to system tray" IsCheckable="True"
+                              IsChecked="{Binding MinimizeToTray, Mode=TwoWay}"
+                              ToolTip="Hide into the notification area instead of the taskbar"/>
                     <Separator/>
                     <MenuItem Header="E_xit" InputGestureText="Alt+F4" Click="ExitMenu_Click"/>
                 </MenuItem>
@@ -221,8 +316,14 @@
         <!-- Interface list -->
         <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" Padding="14,12,14,0">
             <Grid>
-                <ItemsControl ItemsSource="{Binding Interfaces}"
-                              ItemTemplate="{StaticResource InterfaceTemplate}"/>
+                <ItemsControl x:Name="InterfaceList" ItemsSource="{Binding Interfaces}"
+                              ItemTemplate="{StaticResource InterfaceTemplate}"
+                              AllowDrop="True" Background="Transparent"
+                              PreviewMouseLeftButtonDown="InterfaceList_PreviewMouseLeftButtonDown"
+                              PreviewMouseMove="InterfaceList_PreviewMouseMove"
+                              DragOver="InterfaceList_DragOver"
+                              DragLeave="InterfaceList_DragLeave"
+                              Drop="InterfaceList_Drop"/>
                 <TextBlock Text="No matching network interfaces." Margin="0,24,0,0"
                            HorizontalAlignment="Center" Foreground="{StaticResource FgDim}">
                     <TextBlock.Style>
