@@ -1,0 +1,251 @@
+<Window x:Class="NetAnalyzer.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:NetAnalyzer"
+        Title="j0kers Network Analyzer" Height="660" Width="940"
+        MinHeight="320" MinWidth="720"
+        Background="{StaticResource Bg}"
+        FontFamily="Segoe UI" TextElement.Foreground="{StaticResource Fg}"
+        UseLayoutRounding="True" TextOptions.TextFormattingMode="Display">
+
+    <Window.Resources>
+        <local:BoolToVisibilityConverter x:Key="BoolToVis"/>
+
+        <!-- One card per network interface. -->
+        <DataTemplate x:Key="InterfaceTemplate" DataType="{x:Type local:InterfaceMeter}">
+            <Border Background="{StaticResource Panel}" CornerRadius="6" Padding="14,11"
+                    Margin="0,0,0,10" BorderBrush="#262D38" BorderThickness="1">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Header: adapter identity and link info -->
+                    <DockPanel Grid.Row="0" Margin="0,0,0,9">
+                        <TextBlock DockPanel.Dock="Right" Foreground="{StaticResource FgDim}"
+                                   FontSize="11" VerticalAlignment="Center">
+                            <Run Text="{Binding InterfaceType, Mode=OneWay}"/>
+                            <Run Text="·"/>
+                            <Run Text="{Binding LinkSpeedText, Mode=OneWay}"/>
+                            <Run Text="·"/>
+                            <Run Text="{Binding ScaleText, Mode=OneWay}"/>
+                        </TextBlock>
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Width="8" Height="8" VerticalAlignment="Center" Margin="0,0,7,0">
+                                <Ellipse.Style>
+                                    <Style TargetType="Ellipse">
+                                        <Setter Property="Fill" Value="#3AD17E"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsUp}" Value="False">
+                                                <Setter Property="Fill" Value="#5A6472"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Ellipse.Style>
+                            </Ellipse>
+                            <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="SemiBold"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding Description}" FontSize="11" Margin="9,0,0,0"
+                                       Foreground="{StaticResource FgDim}" VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis" MaxWidth="320"/>
+                        </StackPanel>
+                    </DockPanel>
+
+                    <!--
+                        Rows 1 and 2 carry inbound and outbound. In bar mode each row holds its own
+                        spectrum bar; in stream mode the bars collapse and a single ribbon spans
+                        both rows in the same column, so labels and readouts stay put either way.
+                    -->
+                    <Grid Grid.Row="1" Grid.RowSpan="2">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="34"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="104"/>
+                            <ColumnDefinition Width="82"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Inbound -->
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="IN" FontSize="11" FontWeight="Bold"
+                                   Foreground="#3AD17E" VerticalAlignment="Center"/>
+                        <local:SpectrumBar Grid.Row="0" Grid.Column="1" Height="18" Palette="Inbound"
+                                           Margin="0,0,0,5"
+                                           Level="{Binding InLevel, Mode=OneWay}"
+                                           Peak="{Binding InPeak, Mode=OneWay}"
+                                           Visibility="{Binding DataContext.StreamView,
+                                               RelativeSource={RelativeSource AncestorType=Window},
+                                               Converter={StaticResource BoolToVis},
+                                               ConverterParameter=invert}"/>
+                        <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding InRateText, Mode=OneWay}"
+                                   FontFamily="Consolas" FontSize="12" TextAlignment="Right"
+                                   VerticalAlignment="Center" Margin="8,0,0,0"/>
+                        <TextBlock Grid.Row="0" Grid.Column="3" Text="{Binding TotalInText, Mode=OneWay}"
+                                   FontFamily="Consolas" FontSize="11" TextAlignment="Right"
+                                   Foreground="{StaticResource FgDim}" VerticalAlignment="Center"
+                                   ToolTip="Total received since this app started"/>
+
+                        <!-- Outbound -->
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="OUT" FontSize="11" FontWeight="Bold"
+                                   Foreground="#3AC6E8" VerticalAlignment="Center"/>
+                        <local:SpectrumBar Grid.Row="1" Grid.Column="1" Height="18" Palette="Outbound"
+                                           Level="{Binding OutLevel, Mode=OneWay}"
+                                           Peak="{Binding OutPeak, Mode=OneWay}"
+                                           Visibility="{Binding DataContext.StreamView,
+                                               RelativeSource={RelativeSource AncestorType=Window},
+                                               Converter={StaticResource BoolToVis},
+                                               ConverterParameter=invert}"/>
+                        <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding OutRateText, Mode=OneWay}"
+                                   FontFamily="Consolas" FontSize="12" TextAlignment="Right"
+                                   VerticalAlignment="Center" Margin="8,0,0,0"/>
+                        <TextBlock Grid.Row="1" Grid.Column="3" Text="{Binding TotalOutText, Mode=OneWay}"
+                                   FontFamily="Consolas" FontSize="11" TextAlignment="Right"
+                                   Foreground="{StaticResource FgDim}" VerticalAlignment="Center"
+                                   ToolTip="Total sent since this app started"/>
+
+                        <!-- Stream view: one ribbon, inbound above the spine, outbound below -->
+                        <local:StreamGraph Grid.Row="0" Grid.RowSpan="2" Grid.Column="1"
+                                           MinHeight="58" Margin="0,1,0,2"
+                                           PixelsPerSecond="{Binding DataContext.StreamSpeed,
+                                               RelativeSource={RelativeSource AncestorType=Window}}"
+                                           InLevel="{Binding InLevel, Mode=OneWay}"
+                                           OutLevel="{Binding OutLevel, Mode=OneWay}"
+                                           Visibility="{Binding DataContext.StreamView,
+                                               RelativeSource={RelativeSource AncestorType=Window},
+                                               Converter={StaticResource BoolToVis}}"/>
+                    </Grid>
+                </Grid>
+            </Border>
+        </DataTemplate>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Banner -->
+        <Border Grid.Row="0" Padding="16,11" BorderBrush="#2C3440" BorderThickness="0,0,0,1">
+            <Border.Background>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                    <GradientStop Color="#16202B" Offset="0"/>
+                    <GradientStop Color="#12303F" Offset="0.55"/>
+                    <GradientStop Color="#12151A" Offset="1"/>
+                </LinearGradientBrush>
+            </Border.Background>
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Right" VerticalAlignment="Center" FontSize="11"
+                           Foreground="{StaticResource FgDim}"
+                           Text="live interface throughput"/>
+                <StackPanel Orientation="Horizontal">
+                    <!-- Signal mark: three rising bars echoing the spectrum meters below -->
+                    <Canvas Width="20" Height="18" VerticalAlignment="Center" Margin="0,0,10,0">
+                        <Rectangle Canvas.Left="0" Canvas.Top="10" Width="4" Height="8" Fill="#3AD17E"/>
+                        <Rectangle Canvas.Left="7" Canvas.Top="5" Width="4" Height="13" Fill="#E8C44A"/>
+                        <Rectangle Canvas.Left="14" Canvas.Top="0" Width="4" Height="18" Fill="#F24E4E"/>
+                    </Canvas>
+                    <TextBlock VerticalAlignment="Center">
+                        <Run Text="j0kers" FontSize="19" FontWeight="Bold" Foreground="{StaticResource Accent}"/>
+                        <Run Text="Network Analyzer" FontSize="19" FontWeight="Light"/>
+                    </TextBlock>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- Toolbar -->
+        <Border Grid.Row="1" Background="{StaticResource PanelAlt}" Padding="14,10"
+                BorderBrush="#2C3440" BorderThickness="0,0,0,1">
+            <WrapPanel Orientation="Horizontal">
+                <TextBlock Text="Poll every" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <Slider x:Name="IntervalSlider" Width="190" Minimum="100" Maximum="5000"
+                        TickFrequency="100" IsSnapToTickEnabled="True"
+                        VerticalAlignment="Center"
+                        Value="{Binding IntervalMs, Mode=TwoWay}"/>
+                <TextBox x:Name="IntervalBox" Width="62" Margin="10,0,4,0" VerticalAlignment="Center"
+                         Background="#151A21" Foreground="{StaticResource Fg}" BorderBrush="#38414F"
+                         TextAlignment="Right"
+                         Text="{Binding IntervalMs, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                         KeyDown="IntervalBox_KeyDown"/>
+                <TextBlock Text="ms" VerticalAlignment="Center" Margin="0,0,18,0"
+                           Foreground="{StaticResource FgDim}"/>
+
+                <CheckBox Content="Bits/sec" VerticalAlignment="Center" Margin="0,0,14,0"
+                          IsChecked="{Binding UseBits, Mode=TwoWay}"
+                          ToolTip="Show Mbps instead of MB/s"/>
+                <CheckBox Content="Inactive adapters" VerticalAlignment="Center" Margin="0,0,14,0"
+                          IsChecked="{Binding ShowInactive, Mode=TwoWay}"/>
+                <CheckBox Content="Loopback" VerticalAlignment="Center" Margin="0,0,18,0"
+                          IsChecked="{Binding ShowLoopback, Mode=TwoWay}"/>
+
+                <ToggleButton Content="{Binding ViewModeText, Mode=OneWay}" Width="96" Margin="0,0,8,0"
+                              IsChecked="{Binding StreamView, Mode=TwoWay}"
+                              ToolTip="Switch between segmented bars and the scrolling stream"/>
+
+                <!-- Flow speed only means anything in stream mode. -->
+                <StackPanel Orientation="Horizontal" Margin="0,0,10,0"
+                            Visibility="{Binding StreamView, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Text="Flow" VerticalAlignment="Center" Margin="0,0,6,0"
+                               Foreground="{StaticResource FgDim}"/>
+                    <Slider Width="90" Minimum="15" Maximum="200" VerticalAlignment="Center"
+                            Value="{Binding StreamSpeed, Mode=TwoWay}"
+                            ToolTip="Scroll speed of the stream, in pixels per second"/>
+                </StackPanel>
+
+                <Button x:Name="PauseButton" Content="Pause" Width="72" Margin="0,0,8,0"
+                        Padding="0,3" Click="PauseButton_Click"/>
+                <Button Content="Reset totals" Padding="10,3" Click="ResetButton_Click"/>
+            </WrapPanel>
+        </Border>
+
+        <!-- Interface list -->
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Padding="14,12,14,0">
+            <Grid>
+                <ItemsControl ItemsSource="{Binding Interfaces}"
+                              ItemTemplate="{StaticResource InterfaceTemplate}"/>
+                <TextBlock Text="No matching network interfaces." Margin="0,24,0,0"
+                           HorizontalAlignment="Center" Foreground="{StaticResource FgDim}">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Interfaces.Count}" Value="0">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </Grid>
+        </ScrollViewer>
+
+        <!-- Aggregate footer -->
+        <Border Grid.Row="3" Background="{StaticResource PanelAlt}" Padding="14,7"
+                BorderBrush="#2C3440" BorderThickness="0,1,0,0">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Right" Foreground="{StaticResource FgDim}" FontSize="11"
+                           VerticalAlignment="Center">
+                    <Run Text="interval"/>
+                    <Run Text="{Binding IntervalText, Mode=OneWay}" Foreground="{StaticResource Accent}"/>
+                    <Run Text="· log scale, peak hold"/>
+                </TextBlock>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="ALL IN" FontSize="11" FontWeight="Bold" Foreground="#3AD17E"
+                               VerticalAlignment="Center" Margin="0,0,7,0"/>
+                    <TextBlock Text="{Binding AggregateInText, Mode=OneWay}" FontFamily="Consolas"
+                               FontSize="12" VerticalAlignment="Center" Margin="0,0,18,0"/>
+                    <TextBlock Text="ALL OUT" FontSize="11" FontWeight="Bold" Foreground="#3AC6E8"
+                               VerticalAlignment="Center" Margin="0,0,7,0"/>
+                    <TextBlock Text="{Binding AggregateOutText, Mode=OneWay}" FontFamily="Consolas"
+                               FontSize="12" VerticalAlignment="Center"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+    </Grid>
+</Window>
