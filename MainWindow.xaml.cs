@@ -274,6 +274,13 @@ public partial class MainWindow : Window
 
     private void CycleView_Click(object sender, RoutedEventArgs e) => _monitor.CycleMode();
 
+    /// <summary>Refreshes the startup tick from the registry as the menu opens.</summary>
+    private void ContextMenu_Opened(object sender, RoutedEventArgs e)
+        => StartupMenuItem.IsChecked = StartupRegistration.IsEnabled;
+
+    private void StartupMenuItem_Click(object sender, RoutedEventArgs e)
+        => StartupMenuItem.IsChecked = StartupRegistration.SetEnabled(!StartupRegistration.IsEnabled);
+
     /// <summary>Opacity menu items carry their value in Tag, e.g. "0.65".</summary>
     private void Opacity_Click(object sender, RoutedEventArgs e)
     {

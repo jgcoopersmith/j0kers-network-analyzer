@@ -268,9 +268,17 @@
         title bar and no menu strip.
     -->
     <Window.ContextMenu>
-        <ContextMenu>
+        <ContextMenu Opened="ContextMenu_Opened">
             <MenuItem Header="Always on top" IsCheckable="True"
                       IsChecked="{Binding AlwaysOnTop, Mode=TwoWay}"/>
+            <!--
+                Checked state is read from the Run key each time the menu opens rather than
+                bound: the registry is the source of truth and can change behind our back
+                (Task Manager's Startup apps page edits the same entry).
+            -->
+            <MenuItem x:Name="StartupMenuItem" Header="Start with Windows"
+                      Click="StartupMenuItem_Click"
+                      ToolTip="Launch automatically when you sign in"/>
             <Separator/>
             <MenuItem Header="Opacity">
                 <!--
