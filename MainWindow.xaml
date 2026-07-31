@@ -4,10 +4,24 @@
         xmlns:local="clr-namespace:NetAnalyzer"
         Title="j0kers Network Analyzer" Height="660" Width="940"
         MinHeight="320" MinWidth="720"
-        Background="{StaticResource Bg}"
+        Background="Transparent"
         FontFamily="Segoe UI" TextElement.Foreground="{StaticResource Fg}"
+        UseLayoutRounding="True" TextOptions.TextFormattingMode="Display"
         Opacity="{Binding WindowOpacity}"
-        UseLayoutRounding="True" TextOptions.TextFormattingMode="Display">
+        WindowStyle="None" AllowsTransparency="True" ResizeMode="CanResize">
+
+    <!--
+        AllowsTransparency is what makes the window layered, and only a layered window can
+        actually be seen through — without it WPF just fades the content against its own
+        background, which reads as a dimmer window rather than a translucent one. It requires
+        WindowStyle=None, so the title bar below is ours rather than the system's. WindowChrome
+        restores the parts that come with a real frame: edge resizing, snap, and a maximize that
+        respects the taskbar.
+    -->
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="0" ResizeBorderThickness="6"
+                      GlassFrameThickness="0" CornerRadius="0" UseAeroCaptionButtons="False"/>
+    </WindowChrome.WindowChrome>
 
 
     <Window.Resources>
@@ -279,6 +293,20 @@
         </ContextMenu>
     </Window.ContextMenu>
 
+    <!-- Rounded shell standing in for the system frame; squared off when maximized. -->
+    <Border x:Name="Shell" Background="{StaticResource Bg}" BorderBrush="#3C4657" BorderThickness="1">
+        <Border.Style>
+            <Style TargetType="Border">
+                <Setter Property="CornerRadius" Value="8"/>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding WindowState, RelativeSource={RelativeSource AncestorType=Window}}"
+                                 Value="Maximized">
+                        <Setter Property="CornerRadius" Value="0"/>
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+        </Border.Style>
+
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -309,8 +337,9 @@
             </Menu>
         </Border>
 
-        <!-- Banner -->
+        <!-- Banner, doubling as the title bar: drag to move, double-click to maximize -->
         <Border Grid.Row="1" Padding="16,11" BorderBrush="#2C3440" BorderThickness="0,0,0,1"
+                MouseLeftButtonDown="TitleBar_MouseLeftButtonDown"
                 Visibility="{Binding Mode, Converter={StaticResource ModeVis}, ConverterParameter=!Widget}">
             <Border.Background>
                 <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
@@ -320,8 +349,18 @@
                 </LinearGradientBrush>
             </Border.Background>
             <DockPanel>
+                <!-- Caption buttons: this window has no system frame of its own -->
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top"
+                            Margin="8,-6,-8,0">
+                    <Button Style="{StaticResource CaptionButton}" Content="&#xE921;"
+                            Click="Minimize_Click" ToolTip="Minimize"/>
+                    <Button Style="{StaticResource CaptionButton}" Content="&#xE922;"
+                            Click="Maximize_Click" ToolTip="Maximize"/>
+                    <Button Style="{StaticResource CloseButton}" Content="&#xE8BB;"
+                            Click="Close_Click" ToolTip="Close"/>
+                </StackPanel>
                 <TextBlock DockPanel.Dock="Right" VerticalAlignment="Center" FontSize="11"
-                           Foreground="{StaticResource FgDim}"
+                           Margin="0,0,12,0" Foreground="{StaticResource FgDim}"
                            Text="live interface throughput"/>
                 <StackPanel Orientation="Horizontal">
                     <!-- Hub-and-spoke mark, matching the application icon -->
@@ -470,4 +509,5 @@
             </StackPanel>
         </Border>
     </Grid>
+    </Border>
 </Window>

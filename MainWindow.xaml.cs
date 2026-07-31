@@ -81,7 +81,12 @@ public partial class MainWindow : Window
         // Re-pin whenever something could have knocked us out of the topmost band: another app
         // taking activation (maximizing one does exactly this), our own handle being recreated,
         // or a restore from minimized.
-        SourceInitialized += (_, _) => ReassertTopmost();
+        // The layered style lives on the handle, so it has to be reapplied once the handle
+        // exists and again after anything that recreates or restyles it.
+        SourceInitialized += (_, _) =>
+        {
+            ReassertTopmost();
+        };
         Activated += (_, _) => ReassertTopmost();
         Deactivated += (_, _) => ReassertTopmost();
         Closed += (_, _) =>
@@ -189,9 +194,26 @@ public partial class MainWindow : Window
     private void MainWindow_StateChanged(object? sender, EventArgs e)
     {
         if (WindowState == WindowState.Minimized && _monitor.MinimizeToTray)
+        {
             HideToTray();
+            return;
+        }
+
+        // A borderless window maximizes over the whole screen, taskbar included; cap it to the
+        // work area instead. MaximizedPrimaryScreenWidth/Height already include the fudge WPF
+        // applies, so the window lands exactly on the work area of the display it is on.
+        if (WindowState == WindowState.Maximized)
+        {
+            MaxWidth = SystemParameters.MaximizedPrimaryScreenWidth;
+            MaxHeight = SystemParameters.MaximizedPrimaryScreenHeight;
+        }
         else
-            ReassertTopmost();
+        {
+            MaxWidth = double.PositiveInfinity;
+            MaxHeight = double.PositiveInfinity;
+        }
+
+        ReassertTopmost();
     }
 
     private void HideToTray()
@@ -332,16 +354,57 @@ public partial class MainWindow : Window
     private static extern bool SetWindowPos(
         IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
 
+    // ---- Custom title bar ----
+
+    /// <summary>The banner is the title bar: drag to move, double-click to toggle maximize.</summary>
+    private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ClickCount == 2)
+        {
+            ToggleMaximize();
+            return;
+        }
+
+        if (e.ButtonState != MouseButtonState.Pressed)
+            return;
+
+        try
+        {
+            DragMove();
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
+
+    private void Minimize_Click(object sender, RoutedEventArgs e)
+        => WindowState = WindowState.Minimized;
+
+    private void Maximize_Click(object sender, RoutedEventArgs e) => ToggleMaximize();
+
+    private void Close_Click(object sender, RoutedEventArgs e) => Close();
+
+    private void ToggleMaximize()
+        => WindowState = WindowState == WindowState.Maximized
+            ? WindowState.Normal
+            : WindowState.Maximized;
+
+    /// <summary>
+    /// Tracks widget mode directly. WindowStyle used to serve as this flag, but the window is
+    /// now permanently borderless so that it can be transparent.
+    /// </summary>
+    private bool _inWidgetMode;
+
     private void EnterWidgetMode()
     {
-        if (WindowStyle == WindowStyle.None)
+        if (_inWidgetMode)
             return;
+        _inWidgetMode = true;
 
         if (WindowState == WindowState.Normal)
             _normalBounds = new Rect(Left, Top, Width, Height);
 
         WindowState = WindowState.Normal;
-        WindowStyle = WindowStyle.None;
         ResizeMode = ResizeMode.NoResize;
         MinWidth = 0;
         MinHeight = 0;
@@ -352,11 +415,11 @@ public partial class MainWindow : Window
 
     private void ExitWidgetMode()
     {
-        if (WindowStyle != WindowStyle.None)
+        if (!_inWidgetMode)
             return;
+        _inWidgetMode = false;
 
         SizeToContent = SizeToContent.Manual;
-        WindowStyle = WindowStyle.SingleBorderWindow;
         ResizeMode = ResizeMode.CanResize;
         MinWidth = _chromeMinWidth;
         MinHeight = _chromeMinHeight;
