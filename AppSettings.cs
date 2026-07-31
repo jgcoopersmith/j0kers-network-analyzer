@@ -34,6 +34,7 @@ public sealed class AppSettings
     public bool StreamView { get; set; }
     public double StreamSpeed { get; set; } = 60;
     public bool AlwaysOnTop { get; set; }
+    public double WindowOpacity { get; set; } = 1.0;
     public bool MinimizeOnClose { get; set; }
     public bool MinimizeToTray { get; set; }
 

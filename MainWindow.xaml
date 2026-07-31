@@ -6,11 +6,14 @@
         MinHeight="320" MinWidth="720"
         Background="{StaticResource Bg}"
         FontFamily="Segoe UI" TextElement.Foreground="{StaticResource Fg}"
+        Opacity="{Binding WindowOpacity}"
         UseLayoutRounding="True" TextOptions.TextFormattingMode="Display">
+
 
     <Window.Resources>
         <local:BoolToVisibilityConverter x:Key="BoolToVis"/>
         <local:EnumVisibilityConverter x:Key="ModeVis"/>
+        <local:ValueEqualsConverter x:Key="ValueEquals"/>
 
         <!-- Compact row for widget mode: name, ribbon, and the two rates. -->
         <DataTemplate x:Key="WidgetTemplate" DataType="{x:Type local:InterfaceMeter}">
@@ -245,6 +248,36 @@
             </Grid>
         </DataTemplate>
     </Window.Resources>
+
+    <!--
+        Right-click anywhere on the window. Reachable in widget mode too, where there is no
+        title bar and no menu strip.
+    -->
+    <Window.ContextMenu>
+        <ContextMenu>
+            <MenuItem Header="Always on top" IsCheckable="True"
+                      IsChecked="{Binding AlwaysOnTop, Mode=TwoWay}"/>
+            <Separator/>
+            <MenuItem Header="Opacity">
+                <!--
+                    Radio behaviour: the tick follows the stored value rather than toggling
+                    locally, so exactly one option is ever marked.
+                -->
+                <MenuItem Header="100%" Tag="1.0" Click="Opacity_Click"
+                          IsChecked="{Binding WindowOpacity, Mode=OneWay,
+                              Converter={StaticResource ValueEquals}, ConverterParameter=1.0}"/>
+                <MenuItem Header="90%" Tag="0.9" Click="Opacity_Click"
+                          IsChecked="{Binding WindowOpacity, Mode=OneWay,
+                              Converter={StaticResource ValueEquals}, ConverterParameter=0.9}"/>
+                <MenuItem Header="80%" Tag="0.8" Click="Opacity_Click"
+                          IsChecked="{Binding WindowOpacity, Mode=OneWay,
+                              Converter={StaticResource ValueEquals}, ConverterParameter=0.8}"/>
+                <MenuItem Header="65%" Tag="0.65" Click="Opacity_Click"
+                          IsChecked="{Binding WindowOpacity, Mode=OneWay,
+                              Converter={StaticResource ValueEquals}, ConverterParameter=0.65}"/>
+            </MenuItem>
+        </ContextMenu>
+    </Window.ContextMenu>
 
     <Grid>
         <Grid.RowDefinitions>

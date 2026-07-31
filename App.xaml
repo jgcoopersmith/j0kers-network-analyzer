@@ -81,6 +81,45 @@
             </ControlTemplate.Triggers>
         </ControlTemplate>
 
+        <!-- A nested item that opens its own flyout: same row layout, plus an arrow and popup. -->
+        <ControlTemplate x:Key="SubmenuHeaderTemplate" TargetType="MenuItem">
+            <Border x:Name="Bd" Background="Transparent" CornerRadius="3" Padding="4,6">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="24"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <ContentPresenter Grid.Column="1" ContentSource="Header" RecognizesAccessKey="True"
+                                      VerticalAlignment="Center"
+                                      TextElement.Foreground="{TemplateBinding Foreground}"/>
+                    <Path Grid.Column="2" Data="M 0 0 L 4 4 L 0 8 Z" Margin="24,0,6,0"
+                          VerticalAlignment="Center" Fill="{StaticResource FgDim}"/>
+
+                    <Popup IsOpen="{TemplateBinding IsSubmenuOpen}" Placement="Right"
+                           HorizontalOffset="-6" VerticalOffset="-6"
+                           AllowsTransparency="True" Focusable="False" PopupAnimation="Fade">
+                        <Border Background="#1C222B" BorderBrush="#3C4657" BorderThickness="1"
+                                CornerRadius="4" Padding="4" Margin="0,0,10,10" MinWidth="120">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.55" Color="Black"/>
+                            </Border.Effect>
+                            <StackPanel IsItemsHost="True"
+                                        KeyboardNavigation.DirectionalNavigation="Cycle"/>
+                        </Border>
+                    </Popup>
+                </Grid>
+            </Border>
+            <ControlTemplate.Triggers>
+                <Trigger Property="IsHighlighted" Value="True">
+                    <Setter TargetName="Bd" Property="Background" Value="#2E3A48"/>
+                </Trigger>
+                <Trigger Property="IsSubmenuOpen" Value="True">
+                    <Setter TargetName="Bd" Property="Background" Value="#2E3A48"/>
+                </Trigger>
+            </ControlTemplate.Triggers>
+        </ControlTemplate>
+
         <Style TargetType="MenuItem">
             <Setter Property="Foreground" Value="{StaticResource Fg}"/>
             <Setter Property="FontFamily" Value="Segoe UI"/>
@@ -90,7 +129,32 @@
                 <Trigger Property="Role" Value="TopLevelHeader">
                     <Setter Property="Template" Value="{StaticResource TopLevelHeaderTemplate}"/>
                 </Trigger>
+                <Trigger Property="Role" Value="SubmenuHeader">
+                    <Setter Property="Template" Value="{StaticResource SubmenuHeaderTemplate}"/>
+                </Trigger>
             </Style.Triggers>
+        </Style>
+
+        <Style TargetType="ContextMenu">
+            <Setter Property="Foreground" Value="{StaticResource Fg}"/>
+            <Setter Property="FontFamily" Value="Segoe UI"/>
+            <Setter Property="FontSize" Value="12"/>
+            <!-- The system shadow would sit under our own rounded border. -->
+            <Setter Property="HasDropShadow" Value="False"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ContextMenu">
+                        <Border Background="#1C222B" BorderBrush="#3C4657" BorderThickness="1"
+                                CornerRadius="4" Padding="4" Margin="0,0,10,10" MinWidth="190">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.55" Color="Black"/>
+                            </Border.Effect>
+                            <StackPanel IsItemsHost="True"
+                                        KeyboardNavigation.DirectionalNavigation="Cycle"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style TargetType="Menu">

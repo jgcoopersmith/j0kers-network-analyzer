@@ -40,6 +40,7 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
     private ViewMode _mode = ViewMode.Bars;
     private double _streamSpeed = 60;
     private bool _alwaysOnTop;
+    private double _windowOpacity = 1.0;
     private bool _minimizeOnClose;
     private bool _minimizeToTray;
 
@@ -151,6 +152,13 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
         set => Set(ref _alwaysOnTop, value);
     }
 
+    /// <summary>Window transparency, 0.2–1.0. Chosen from the right-click menu.</summary>
+    public double WindowOpacity
+    {
+        get => _windowOpacity;
+        set => Set(ref _windowOpacity, Math.Clamp(value, 0.2, 1.0));
+    }
+
     /// <summary>When set, closing the window minimizes it to the taskbar instead of exiting.</summary>
     public bool MinimizeOnClose
     {
@@ -192,6 +200,7 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
             : s.StreamView ? ViewMode.Stream : ViewMode.Bars;
         _streamSpeed = Math.Clamp(s.StreamSpeed, 10, 300);
         _alwaysOnTop = s.AlwaysOnTop;
+        _windowOpacity = Math.Clamp(s.WindowOpacity, 0.2, 1.0);
         _minimizeOnClose = s.MinimizeOnClose;
         _minimizeToTray = s.MinimizeToTray;
 
@@ -210,7 +219,8 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
             nameof(IntervalMs), nameof(IntervalText), nameof(UseBits), nameof(ShowInactive),
             nameof(ShowLoopback), nameof(HideFilterAdapters), nameof(Mode),
             nameof(ViewModeText), nameof(StreamSpeed),
-            nameof(AlwaysOnTop), nameof(MinimizeOnClose), nameof(MinimizeToTray),
+            nameof(AlwaysOnTop), nameof(WindowOpacity),
+            nameof(MinimizeOnClose), nameof(MinimizeToTray),
         })
         {
             OnPropertyChanged(name);
@@ -229,6 +239,7 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
         StreamView = _mode == NetAnalyzer.ViewMode.Stream,
         StreamSpeed = _streamSpeed,
         AlwaysOnTop = _alwaysOnTop,
+        WindowOpacity = _windowOpacity,
         MinimizeOnClose = _minimizeOnClose,
         MinimizeToTray = _minimizeToTray,
         Interfaces = CaptureInterfaces(),

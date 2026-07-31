@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -250,6 +251,16 @@ public partial class MainWindow : Window
     private readonly double _chromeMinHeight;
 
     private void CycleView_Click(object sender, RoutedEventArgs e) => _monitor.CycleMode();
+
+    /// <summary>Opacity menu items carry their value in Tag, e.g. "0.65".</summary>
+    private void Opacity_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuItem { Tag: string tag } &&
+            double.TryParse(tag, NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
+        {
+            _monitor.WindowOpacity = value;
+        }
+    }
 
     private void Widget_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
