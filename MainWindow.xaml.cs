@@ -274,6 +274,13 @@ public partial class MainWindow : Window
 
     private void CycleView_Click(object sender, RoutedEventArgs e) => _monitor.CycleMode();
 
+    /// <summary>Loads per-app usage for the hovered interface as its tooltip opens.</summary>
+    private void Meter_ToolTipOpening(object sender, ToolTipEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: InterfaceMeter meter })
+            _ = TopTalkers.Instance.RefreshAsync(meter.Id, meter.Name, _monitor.UseBits);
+    }
+
     /// <summary>Refreshes the startup tick from the registry as the menu opens.</summary>
     private void ContextMenu_Opened(object sender, RoutedEventArgs e)
         => StartupMenuItem.IsChecked = StartupRegistration.IsEnabled;

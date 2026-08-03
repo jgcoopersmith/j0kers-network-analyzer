@@ -183,6 +183,26 @@
             <Setter Property="Foreground" Value="{StaticResource Fg}"/>
         </Style>
 
+        <Style TargetType="ToolTip">
+            <Setter Property="Foreground" Value="{StaticResource Fg}"/>
+            <Setter Property="FontFamily" Value="Segoe UI"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="HasDropShadow" Value="False"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToolTip">
+                        <Border Background="#1C222B" BorderBrush="#3C4657" BorderThickness="1"
+                                CornerRadius="5" Padding="10,8" Margin="0,0,10,10">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.55" Color="Black"/>
+                            </Border.Effect>
+                            <ContentPresenter TextElement.Foreground="{TemplateBinding Foreground}"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- Caption buttons for the custom title bar. -->
         <Style x:Key="CaptionButton" TargetType="Button">
             <Setter Property="Width" Value="42"/>

@@ -45,6 +45,18 @@ Also included: pause/resume, reset totals, and filters for inactive adapters and
 Adapters that appear or disappear mid-run — a VPN coming up, a USB NIC unplugged — are added and
 removed automatically.
 
+## Top bandwidth consumers
+
+Hovering over an interface's meters — bars, stream, or a widget row — shows the five applications
+using the most bandwidth on *that* interface over the last minute, with separate down and up rates.
+
+The figures come from the Windows per-app network usage store
+(`ConnectionProfile.GetAttributedNetworkUsageAsync`), which is the only per-process view available
+without elevation: the ETW kernel provider Task Manager uses refuses to start unless the app runs
+as administrator. The trade-offs are that numbers come from an aggregated store rather than live
+counters, so they lag the meters a little, and traffic is attributed per application rather than
+per process. Unpackaged desktop apps report no display name, so their executable name is used.
+
 ## Settings
 
 Preferences persist across restarts in

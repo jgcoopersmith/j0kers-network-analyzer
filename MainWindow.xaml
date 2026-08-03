@@ -29,9 +29,64 @@
         <local:EnumVisibilityConverter x:Key="ModeVis"/>
         <local:ValueEqualsConverter x:Key="ValueEquals"/>
 
+        <!--
+            Shown on hover over any meter. Bound to the singleton rather than a DataContext,
+            because a tooltip lives in its own popup outside the window's tree.
+        -->
+        <!-- x:Shared=False: a ToolTip instance cannot be the child of several owners at once. -->
+        <ToolTip x:Key="TopTalkersTip" x:Shared="False" MaxWidth="330">
+            <StackPanel MinWidth="260">
+                <TextBlock Text="Top bandwidth consumers" FontWeight="SemiBold" FontSize="12"/>
+                <TextBlock Text="{Binding Source={x:Static local:TopTalkers.Instance}, Path=Scope}"
+                           FontSize="10" Foreground="{StaticResource FgDim}" Margin="0,1,0,7"/>
+
+                <TextBlock Text="{Binding Source={x:Static local:TopTalkers.Instance}, Path=Status}"
+                           FontSize="11" Foreground="{StaticResource FgDim}" TextWrapping="Wrap">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Source={x:Static local:TopTalkers.Instance}, Path=Status}"
+                                             Value="">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+
+                <ItemsControl ItemsSource="{Binding Source={x:Static local:TopTalkers.Instance}, Path=Items}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="{Binding Name}" FontSize="11"
+                                           TextTrimming="CharacterEllipsis" Margin="0,0,12,0"/>
+                                <TextBlock Grid.Column="1" FontFamily="Consolas" FontSize="11"
+                                           Foreground="#3AD17E" TextAlignment="Right" MinWidth="74">
+                                    <Run Text="↓"/><Run Text="{Binding DownText, Mode=OneWay}"/>
+                                </TextBlock>
+                                <TextBlock Grid.Column="2" FontFamily="Consolas" FontSize="11"
+                                           Foreground="#3AC6E8" TextAlignment="Right" MinWidth="74">
+                                    <Run Text="↑"/><Run Text="{Binding UpText, Mode=OneWay}"/>
+                                </TextBlock>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </ToolTip>
+
         <!-- Compact row for widget mode: name, ribbon, and the two rates. -->
         <DataTemplate x:Key="WidgetTemplate" DataType="{x:Type local:InterfaceMeter}">
             <Grid Margin="0,0,0,5"
+                  Background="Transparent"
+                  ToolTip="{StaticResource TopTalkersTip}"
+                  ToolTipOpening="Meter_ToolTipOpening"
+                  ToolTipService.InitialShowDelay="400" ToolTipService.ShowDuration="60000"
                   Visibility="{Binding ShowActivity, Converter={StaticResource BoolToVis}}">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="78"/>
@@ -196,6 +251,10 @@
                         both rows in the same column, so labels and readouts stay put either way.
                     -->
                     <Grid Grid.Column="1" Grid.Row="1" Grid.RowSpan="2" Margin="0,9,0,0"
+                          Background="Transparent"
+                          ToolTip="{StaticResource TopTalkersTip}"
+                          ToolTipOpening="Meter_ToolTipOpening"
+                          ToolTipService.InitialShowDelay="400" ToolTipService.ShowDuration="60000"
                           Visibility="{Binding ShowActivity, Converter={StaticResource BoolToVis}}">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
