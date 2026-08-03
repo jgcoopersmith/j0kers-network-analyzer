@@ -384,6 +384,18 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// The Menu control swallows mouse-downs on its own strip, so the drag has to be caught on
+    /// the way down. Clicks on an actual menu header are left alone to open their flyout.
+    /// </summary>
+    private void MenuBar_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (FindAncestor<MenuItem>(e.OriginalSource as DependencyObject) is not null)
+            return;
+
+        TitleBar_MouseLeftButtonDown(sender, e);
+    }
+
     private void Minimize_Click(object sender, RoutedEventArgs e)
         => WindowState = WindowState.Minimized;
 

@@ -324,8 +324,13 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Menu bar -->
+        <!--
+            Menu bar. Like the toolbar and footer below, its empty space doubles as a drag
+            handle: with no system title bar, people grab whatever strip is nearest the top.
+            Interactive controls mark their mouse-downs handled, so only the gaps drag.
+        -->
         <Border Grid.Row="0" Background="#171C24" Padding="6,2"
+                PreviewMouseLeftButtonDown="MenuBar_PreviewMouseLeftButtonDown"
                 Visibility="{Binding Mode, Converter={StaticResource ModeVis}, ConverterParameter=!Widget}">
             <Menu>
                 <MenuItem Header="_File">
@@ -395,6 +400,7 @@
         <!-- Toolbar -->
         <Border Grid.Row="2" Background="{StaticResource PanelAlt}" Padding="14,10"
                 BorderBrush="#2C3440" BorderThickness="0,0,0,1"
+                MouseLeftButtonDown="TitleBar_MouseLeftButtonDown"
                 Visibility="{Binding Mode, Converter={StaticResource ModeVis}, ConverterParameter=!Widget}">
             <WrapPanel Orientation="Horizontal">
                 <TextBlock Text="Poll every" VerticalAlignment="Center" Margin="0,0,8,0"/>
@@ -473,6 +479,7 @@
         <!-- Aggregate footer -->
         <Border Grid.Row="4" Background="{StaticResource PanelAlt}" Padding="14,7"
                 BorderBrush="#2C3440" BorderThickness="0,1,0,0"
+                MouseLeftButtonDown="TitleBar_MouseLeftButtonDown"
                 Visibility="{Binding Mode, Converter={StaticResource ModeVis}, ConverterParameter=!Widget}">
             <DockPanel>
                 <TextBlock DockPanel.Dock="Right" Foreground="{StaticResource FgDim}" FontSize="11"
