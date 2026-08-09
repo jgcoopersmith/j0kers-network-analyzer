@@ -82,12 +82,12 @@
 
         <!-- Compact row for widget mode: name, ribbon, and the two rates. -->
         <DataTemplate x:Key="WidgetTemplate" DataType="{x:Type local:InterfaceMeter}">
+            <!-- Visibility is handled by the item container, so this row is always shown. -->
             <Grid Margin="0,0,0,5"
                   Background="Transparent"
                   ToolTip="{StaticResource TopTalkersTip}"
                   ToolTipOpening="Meter_ToolTipOpening"
-                  ToolTipService.InitialShowDelay="400" ToolTipService.ShowDuration="60000"
-                  Visibility="{Binding ShowActivity, Converter={StaticResource BoolToVis}}">
+                  ToolTipService.InitialShowDelay="400" ToolTipService.ShowDuration="60000">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="78"/>
                     <ColumnDefinition Width="*"/>
@@ -594,6 +594,18 @@
                             <UniformGrid Columns="1"/>
                         </ItemsPanelTemplate>
                     </ItemsControl.ItemsPanel>
+                    <!--
+                        Hide the generated container, not just its contents: UniformGrid divides
+                        the height by its non-collapsed children, so collapsing only the inner
+                        row would still reserve a full cell and squeeze the visible interfaces
+                        into a fraction of the widget.
+                    -->
+                    <ItemsControl.ItemContainerStyle>
+                        <Style TargetType="ContentPresenter">
+                            <Setter Property="Visibility"
+                                    Value="{Binding ShowActivity, Converter={StaticResource BoolToVis}}"/>
+                        </Style>
+                    </ItemsControl.ItemContainerStyle>
                 </ItemsControl>
             </DockPanel>
         </Border>
