@@ -111,12 +111,15 @@ public partial class MainWindow : Window
         settings.WindowLeft = bounds.Left;
         settings.WindowTop = bounds.Top;
 
-        // Widget mode sizes itself, so keep the full-window size that the user chose.
-        var size = _monitor.Mode == ViewMode.Widget && !_normalBounds.IsEmpty
-            ? _normalBounds
-            : bounds;
-        settings.WindowWidth = size.Width;
-        settings.WindowHeight = size.Height;
+        // The two modes have independent sizes, so record whichever one is not on screen from
+        // its remembered value rather than from the live window.
+        var full = _inWidgetMode && !_normalBounds.IsEmpty ? _normalBounds.Size : bounds.Size;
+        var widget = _inWidgetMode ? new Size(Width, Height) : _widgetSize;
+
+        settings.WindowWidth = full.Width;
+        settings.WindowHeight = full.Height;
+        settings.WidgetWidth = widget.Width;
+        settings.WidgetHeight = widget.Height;
         settings.WindowMaximized = WindowState == WindowState.Maximized;
         settings.HiddenInTray = _inTray;
         // In the tray the window is also technically minimized; only one of the two should stick.
@@ -127,6 +130,9 @@ public partial class MainWindow : Window
 
     private void RestoreWindowBounds(AppSettings s)
     {
+        if (s.WidgetWidth >= WidgetMinWidth && s.WidgetHeight >= WidgetMinHeight)
+            _widgetSize = new Size(s.WidgetWidth, s.WidgetHeight);
+
         if (s.WindowWidth >= MinWidth && s.WindowHeight >= MinHeight)
         {
             Width = s.WindowWidth;
@@ -421,6 +427,9 @@ public partial class MainWindow : Window
     /// </summary>
     private bool _inWidgetMode;
 
+    /// <summary>Widget mode keeps its own size, remembered across switches and restarts.</summary>
+    private Size _widgetSize = new(360, 300);
+
     private void EnterWidgetMode()
     {
         if (_inWidgetMode)
@@ -431,12 +440,15 @@ public partial class MainWindow : Window
             _normalBounds = new Rect(Left, Top, Width, Height);
 
         WindowState = WindowState.Normal;
-        ResizeMode = ResizeMode.NoResize;
-        MinWidth = 0;
-        MinHeight = 0;
-        Width = 330;
-        // Height follows the number of selected interfaces.
-        SizeToContent = SizeToContent.Height;
+        SizeToContent = SizeToContent.Manual;
+
+        // Stays resizable in every direction: widening it lengthens the history each ribbon
+        // shows, and heightening it gives the ribbons more room to resolve detail.
+        ResizeMode = ResizeMode.CanResize;
+        MinWidth = WidgetMinWidth;
+        MinHeight = WidgetMinHeight;
+        Width = Math.Max(WidgetMinWidth, _widgetSize.Width);
+        Height = Math.Max(WidgetMinHeight, _widgetSize.Height);
     }
 
     private void ExitWidgetMode()
@@ -444,6 +456,9 @@ public partial class MainWindow : Window
         if (!_inWidgetMode)
             return;
         _inWidgetMode = false;
+
+        // Carry whatever size the widget was left at back into the next visit.
+        _widgetSize = new Size(Width, Height);
 
         SizeToContent = SizeToContent.Manual;
         ResizeMode = ResizeMode.CanResize;
@@ -458,6 +473,9 @@ public partial class MainWindow : Window
 
         EnsureOnScreen();
     }
+
+    private const double WidgetMinWidth = 240;
+    private const double WidgetMinHeight = 120;
 
     // ---- Drag-and-drop reordering of the interface list ----
 

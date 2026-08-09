@@ -98,7 +98,8 @@
                            VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                            Margin="0,0,8,0" ToolTip="{Binding Description}"/>
 
-                <local:StreamGraph Grid.Column="1" Height="30"
+                <local:StreamGraph Grid.Column="1" MinHeight="22" VerticalAlignment="Stretch"
+                                   Margin="0,2"
                                    PixelsPerSecond="{Binding DataContext.StreamSpeed,
                                        RelativeSource={RelativeSource AncestorType=Window}}"
                                    InLevel="{Binding InLevel, Mode=OneWay}"
@@ -357,6 +358,9 @@
                           IsChecked="{Binding WindowOpacity, Mode=OneWay,
                               Converter={StaticResource ValueEquals}, ConverterParameter=0.65}"/>
             </MenuItem>
+            <Separator/>
+            <!-- Widget mode has no caption buttons, so this is the way out of it. -->
+            <MenuItem Header="Exit" Click="ExitMenu_Click"/>
         </ContextMenu>
     </Window.ContextMenu>
 
@@ -568,8 +572,8 @@
                 BorderBrush="#3C4657" BorderThickness="1" Padding="10,8"
                 MouseLeftButtonDown="Widget_MouseLeftButtonDown"
                 Visibility="{Binding Mode, Converter={StaticResource ModeVis}, ConverterParameter=Widget}">
-            <StackPanel>
-                <DockPanel Margin="0,0,0,7">
+            <DockPanel>
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,7">
                     <TextBlock DockPanel.Dock="Right" Text="{Binding AggregateInText, Mode=OneWay}"
                                FontFamily="Consolas" FontSize="11" Foreground="#3AD17E"
                                VerticalAlignment="Center"/>
@@ -578,9 +582,20 @@
                                ToolTip="Double-click to leave widget mode"/>
                 </DockPanel>
 
+                <!--
+                    Rows share the height going spare, so dragging the widget taller grows the
+                    ribbons rather than leaving a gap. Dragging it wider lengthens the history
+                    each ribbon holds, since a ribbon shows width ÷ flow-speed seconds.
+                -->
                 <ItemsControl ItemsSource="{Binding Interfaces}"
-                              ItemTemplate="{StaticResource WidgetTemplate}"/>
-            </StackPanel>
+                              ItemTemplate="{StaticResource WidgetTemplate}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <UniformGrid Columns="1"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                </ItemsControl>
+            </DockPanel>
         </Border>
     </Grid>
     </Border>

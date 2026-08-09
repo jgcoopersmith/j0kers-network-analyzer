@@ -44,6 +44,10 @@ public sealed class AppSettings
     public double WindowTop { get; set; } = double.NaN;
     public bool WindowMaximized { get; set; }
 
+    /// <summary>Widget mode keeps its own size — a wider widget shows more history.</summary>
+    public double WidgetWidth { get; set; } = 360;
+    public double WidgetHeight { get; set; } = 300;
+
     /// <summary>Reopen minimized if that is how it was left.</summary>
     public bool WindowMinimized { get; set; }
 
