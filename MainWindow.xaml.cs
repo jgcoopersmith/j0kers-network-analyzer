@@ -1,3 +1,4 @@
+using Microsoft.Win32;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -19,6 +20,12 @@ public partial class MainWindow : Window
 
     /// <summary>Tracks whether the window is currently parked in the notification area.</summary>
     private bool _inTray;
+
+    /// <summary>Set once the window has settled, gating geometry writes during startup.</summary>
+    private bool _geometryReady;
+
+    /// <summary>Set when Windows is ending the session, so closing is never refused.</summary>
+    private bool _sessionEnding;
 
     private readonly TrayIcon _tray = new("j0ker's Network Analyzer");
 
@@ -70,6 +77,13 @@ public partial class MainWindow : Window
                 HideToTray();
             else if (settings.WindowMinimized)
                 WindowState = WindowState.Minimized;
+
+            // Re-assert the saved position now that the desktop has finished coming up. At
+            // logon the secondary displays may not exist yet, and Windows drags a window that
+            // sits on one back onto the primary; without this the app would settle there and
+            // then save that position over the real one.
+            ReapplySavedPosition(settings);
+            _geometryReady = true;
         };
         Closing += MainWindow_Closing;
         StateChanged += MainWindow_StateChanged;
@@ -78,8 +92,14 @@ public partial class MainWindow : Window
         // Persist geometry shortly after the user stops dragging, rather than only on close:
         // an exit that never raises Closed — killed process, crash, Windows restart — would
         // otherwise reopen at whatever position was last written for some other reason.
-        LocationChanged += (_, _) => QueueSave();
-        SizeChanged += (_, _) => QueueSave();
+        // Held off until the window has settled, so startup layout cannot overwrite a good
+        // saved position with a temporary one.
+        LocationChanged += (_, _) => { if (_geometryReady) QueueSave(); };
+        SizeChanged += (_, _) => { if (_geometryReady) QueueSave(); };
+
+        // Windows is shutting down or logging off: flush immediately, since neither the
+        // debounce nor Closed is guaranteed to run before the process is terminated.
+        SystemEvents.SessionEnding += OnSessionEnding;
 
         // Re-pin whenever something could have knocked us out of the topmost band: another app
         // taking activation (maximizing one does exactly this), our own handle being recreated,
@@ -89,11 +109,40 @@ public partial class MainWindow : Window
         Deactivated += (_, _) => ReassertTopmost();
         Closed += (_, _) =>
         {
+            SystemEvents.SessionEnding -= OnSessionEnding;
             _saveTimer.Stop();
             SaveSettings();
             _monitor.Stop();
             _tray.Dispose();
         };
+    }
+
+    /// <summary>
+    /// Puts the window back where it was saved, if it has drifted and that spot is now usable.
+    /// </summary>
+    private void ReapplySavedPosition(AppSettings s)
+    {
+        if (WindowState != WindowState.Normal || _inWidgetMode)
+            return;
+        if (double.IsNaN(s.WindowLeft) || double.IsNaN(s.WindowTop))
+            return;
+        if (Math.Abs(Left - s.WindowLeft) < 1 && Math.Abs(Top - s.WindowTop) < 1)
+            return;
+        if (!IsReachable(s.WindowLeft, s.WindowTop, Width))
+            return;
+
+        Left = s.WindowLeft;
+        Top = s.WindowTop;
+    }
+
+    private void OnSessionEnding(object? sender, SessionEndingEventArgs e)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            _sessionEnding = true;
+            _saveTimer.Stop();
+            SaveSettings();
+        });
     }
 
     /// <summary>Restarts the debounce, so a burst of changes collapses into one write.</summary>
@@ -190,7 +239,8 @@ public partial class MainWindow : Window
 
     private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
-        if (_exiting || !_monitor.MinimizeOnClose)
+        // Never refuse to close while Windows is ending the session — that would stall shutdown.
+        if (_exiting || _sessionEnding || !_monitor.MinimizeOnClose)
             return;
 
         // Keep running instead of shutting down; polling carries on in the background either way.
