@@ -44,11 +44,7 @@ public partial class MainWindow : Window
             _saveTimer.Stop();
             SaveSettings();
         };
-        _monitor.SettingsChanged += () =>
-        {
-            _saveTimer.Stop();
-            _saveTimer.Start();
-        };
+        _monitor.SettingsChanged += QueueSave;
         _monitor.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(NetworkMonitor.Mode))
@@ -79,6 +75,12 @@ public partial class MainWindow : Window
         StateChanged += MainWindow_StateChanged;
         ShellContent.SizeChanged += (_, _) => UpdateShellClip();
 
+        // Persist geometry shortly after the user stops dragging, rather than only on close:
+        // an exit that never raises Closed — killed process, crash, Windows restart — would
+        // otherwise reopen at whatever position was last written for some other reason.
+        LocationChanged += (_, _) => QueueSave();
+        SizeChanged += (_, _) => QueueSave();
+
         // Re-pin whenever something could have knocked us out of the topmost band: another app
         // taking activation (maximizing one does exactly this), our own handle being recreated,
         // or a restore from minimized.
@@ -92,6 +94,13 @@ public partial class MainWindow : Window
             _monitor.Stop();
             _tray.Dispose();
         };
+    }
+
+    /// <summary>Restarts the debounce, so a burst of changes collapses into one write.</summary>
+    private void QueueSave()
+    {
+        _saveTimer.Stop();
+        _saveTimer.Start();
     }
 
     private void SaveSettings()
