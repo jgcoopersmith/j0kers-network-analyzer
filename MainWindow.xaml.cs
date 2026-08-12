@@ -77,16 +77,12 @@ public partial class MainWindow : Window
         };
         Closing += MainWindow_Closing;
         StateChanged += MainWindow_StateChanged;
+        ShellContent.SizeChanged += (_, _) => UpdateShellClip();
 
         // Re-pin whenever something could have knocked us out of the topmost band: another app
         // taking activation (maximizing one does exactly this), our own handle being recreated,
         // or a restore from minimized.
-        // The layered style lives on the handle, so it has to be reapplied once the handle
-        // exists and again after anything that recreates or restyles it.
-        SourceInitialized += (_, _) =>
-        {
-            ReassertTopmost();
-        };
+        SourceInitialized += (_, _) => ReassertTopmost();
         Activated += (_, _) => ReassertTopmost();
         Deactivated += (_, _) => ReassertTopmost();
         Closed += (_, _) =>
@@ -219,7 +215,29 @@ public partial class MainWindow : Window
             MaxHeight = double.PositiveInfinity;
         }
 
+        UpdateShellClip();
         ReassertTopmost();
+    }
+
+    /// <summary>
+    /// Rounds off the shell's contents. A Border does not clip what it contains, so without this
+    /// the square-cornered strips inside — menu bar, footer, widget panel — paint across the
+    /// rounded corners and the window reads as rounded and square at the same time. Squared off
+    /// when maximized, matching the shell.
+    /// </summary>
+    private void UpdateShellClip()
+    {
+        var w = ShellContent.ActualWidth;
+        var h = ShellContent.ActualHeight;
+        if (w <= 0 || h <= 0)
+        {
+            ShellContent.Clip = null;
+            return;
+        }
+
+        // A shade under the shell's 8px radius, since this sits inside its 1px border.
+        var radius = WindowState == WindowState.Maximized ? 0 : 7.0;
+        ShellContent.Clip = new RectangleGeometry(new Rect(0, 0, w, h), radius, radius);
     }
 
     private void HideToTray()

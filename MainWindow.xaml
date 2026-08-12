@@ -378,7 +378,12 @@
             </Style>
         </Border.Style>
 
-    <Grid>
+    <!--
+        Clipped to the shell's rounded shape in code: a Border does not clip its children, so
+        the square-cornered strips inside (menu bar, footer, widget panel) would otherwise paint
+        over the rounded corners and leave the window looking rounded and square at once.
+    -->
+    <Grid x:Name="ShellContent">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -568,8 +573,8 @@
             Widget mode: spans every row so the window shrinks to just this panel once the
             chrome above collapses. Drag anywhere to move it, double-click to move on.
         -->
-        <Border Grid.Row="0" Grid.RowSpan="5" Background="{StaticResource Bg}"
-                BorderBrush="#3C4657" BorderThickness="1" Padding="10,8"
+        <!-- Background and frame come from the shell; this only needs padding and a drag target. -->
+        <Border Grid.Row="0" Grid.RowSpan="5" Background="Transparent" Padding="10,8"
                 MouseLeftButtonDown="Widget_MouseLeftButtonDown"
                 Visibility="{Binding Mode, Converter={StaticResource ModeVis}, ConverterParameter=Widget}">
             <DockPanel>
