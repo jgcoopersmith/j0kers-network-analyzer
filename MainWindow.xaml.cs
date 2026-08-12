@@ -20,7 +20,7 @@ public partial class MainWindow : Window
     /// <summary>Tracks whether the window is currently parked in the notification area.</summary>
     private bool _inTray;
 
-    private readonly TrayIcon _tray = new("j0kers Network Analyzer");
+    private readonly TrayIcon _tray = new("j0ker's Network Analyzer");
 
     /// <summary>Coalesces bursts of preference changes into a single write.</summary>
     private readonly DispatcherTimer _saveTimer = new() { Interval = TimeSpan.FromSeconds(1.5) };

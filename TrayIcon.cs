@@ -50,7 +50,7 @@ public sealed class TrayIcon : IDisposable
         if (_greeted)
             return;
         _greeted = true;
-        _icon.ShowBalloonTip(2500, "j0kers Network Analyzer",
+        _icon.ShowBalloonTip(2500, "j0ker's Network Analyzer",
             "Still monitoring. Double-click the tray icon to bring it back.", Forms.ToolTipIcon.Info);
     }
 

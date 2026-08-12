@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:NetAnalyzer"
-        Title="j0kers Network Analyzer" Height="660" Width="940"
+        Title="j0ker's Network Analyzer" Height="660" Width="940"
         MinHeight="320" MinWidth="720"
         Background="Transparent"
         FontFamily="Segoe UI" TextElement.Foreground="{StaticResource Fg}"
@@ -458,7 +458,7 @@
                         <Ellipse Canvas.Left="9" Canvas.Top="8" Width="6" Height="6" Fill="#4EC9F5"/>
                     </Canvas>
                     <TextBlock VerticalAlignment="Center">
-                        <Run Text="j0kers" FontSize="19" FontWeight="Bold" Foreground="{StaticResource Accent}"/>
+                        <Run Text="j0ker's" FontSize="19" FontWeight="Bold" Foreground="{StaticResource Accent}"/>
                         <Run Text="Network Analyzer" FontSize="19" FontWeight="Light"/>
                     </TextBlock>
                 </StackPanel>
@@ -578,14 +578,16 @@
                 MouseLeftButtonDown="Widget_MouseLeftButtonDown"
                 Visibility="{Binding Mode, Converter={StaticResource ModeVis}, ConverterParameter=Widget}">
             <DockPanel>
-                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,7">
-                    <TextBlock DockPanel.Dock="Right" Text="{Binding AggregateInText, Mode=OneWay}"
-                               FontFamily="Consolas" FontSize="11" Foreground="#3AD17E"
-                               VerticalAlignment="Center"/>
-                    <TextBlock Text="j0kers" FontWeight="Bold" FontSize="11"
-                               Foreground="{StaticResource Accent}" VerticalAlignment="Center"
+                <!-- Title centred on the widget itself; the rate sits over it on the right. -->
+                <Grid DockPanel.Dock="Top" Margin="0,0,0,7">
+                    <TextBlock Text="j0ker's Network Analyzer" FontWeight="Bold" FontSize="11"
+                               Foreground="{StaticResource Accent}"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"
                                ToolTip="Double-click to leave widget mode"/>
-                </DockPanel>
+                    <TextBlock Text="{Binding AggregateInText, Mode=OneWay}"
+                               FontFamily="Consolas" FontSize="11" Foreground="#3AD17E"
+                               HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                </Grid>
 
                 <!--
                     Rows share the height going spare, so dragging the widget taller grows the

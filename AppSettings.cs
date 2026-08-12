@@ -72,6 +72,8 @@ public static class SettingsStore
 
     public static string FilePath { get; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        // Folder name kept as-is deliberately: renaming it would strand every existing
+        // settings file and silently reset the app's preferences.
         "j0kers Network Analyzer",
         "settings.json");
 

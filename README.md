@@ -1,4 +1,4 @@
-# j0kers Network Analyzer
+# j0ker's Network Analyzer
 
 A Windows 11 desktop app (C# / WPF) that shows live in/out throughput for every active network
 interface, with two ways to read the traffic.
