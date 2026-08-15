@@ -39,8 +39,20 @@ public sealed class AppUsage
 /// </summary>
 public sealed class TopTalkers : INotifyPropertyChanged
 {
-    /// <summary>How far back to sample. The store buckets coarsely, so a very short window is empty.</summary>
-    private static readonly TimeSpan Window = TimeSpan.FromMinutes(1);
+    /// <summary>
+    /// How far back to sample. The store only flushes attributed usage every so often and in
+    /// coarse buckets, so a short window sometimes falls entirely inside a bucket that has not
+    /// been written yet and comes back empty. Two minutes always straddles a flushed bucket.
+    /// </summary>
+    private static readonly TimeSpan Window = TimeSpan.FromMinutes(2);
+
+    /// <summary>
+    /// How long a reading is kept when the store returns nothing or throws. Both happen in
+    /// passing — the store is mid-flush, or a profile is being torn down — and blanking the
+    /// tooltip and ribbons for the duration reads as traffic vanishing. Past this, the reading is
+    /// treated as stale and dropped.
+    /// </summary>
+    private static readonly TimeSpan HoldFor = TimeSpan.FromMinutes(5);
 
     private const int MaxEntries = TalkerPalette.SlotCount;
 
@@ -50,8 +62,12 @@ public sealed class TopTalkers : INotifyPropertyChanged
     private string _scope = "";
     private bool _busy;
 
-    /// <summary>Latest reading per adapter, ordered highest first, keyed by adapter id.</summary>
+    /// <summary>Latest non-empty reading per adapter, ordered highest first, keyed by adapter id.</summary>
     private readonly Dictionary<string, List<Talker>> _byAdapter =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>When each adapter's reading was last refreshed with real data.</summary>
+    private readonly Dictionary<string, DateTime> _readAt =
         new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Colour assignments per adapter, kept across refreshes so they stay put.</summary>
@@ -106,9 +122,12 @@ public sealed class TopTalkers : INotifyPropertyChanged
         }
 
         Status = Items.Count > 0 ? ""
+            : !_polledOnce ? "Sampling…"
             : _unavailable ? "Per-app usage unavailable"
             : "No attributed traffic recorded";
     }
+
+    private bool _polledOnce;
 
     /// <summary>
     /// Re-reads the usage store and republishes each meter's colour mix. Safe to call repeatedly;
@@ -120,6 +139,7 @@ public sealed class TopTalkers : INotifyPropertyChanged
             return;
         _busy = true;
 
+        var now = DateTime.UtcNow;
         try
         {
             var usage = await Task.Run(Collect);
@@ -129,21 +149,44 @@ public sealed class TopTalkers : INotifyPropertyChanged
             {
                 usage.TryGetValue(meter.Id, out var apps);
                 var talkers = Rank(meter.Id, apps);
+
+                // An empty poll is far more often the store mid-flush than the link going
+                // quiet, so the previous reading stands until it ages out.
+                if (talkers.Count == 0)
+                {
+                    Expire(meter, now);
+                    continue;
+                }
+
                 _byAdapter[meter.Id] = talkers;
+                _readAt[meter.Id] = now;
                 meter.Mix = BuildMix(talkers);
             }
         }
         catch (Exception e) when (e is not OutOfMemoryException)
         {
+            // Same policy for a throw: keep showing what we had, and only admit the store is
+            // unavailable once nothing recent is left to show.
             _unavailable = true;
-            _byAdapter.Clear();
             foreach (var meter in meters)
-                meter.Mix = null;
+                Expire(meter, now);
         }
         finally
         {
+            _polledOnce = true;
             _busy = false;
         }
+    }
+
+    /// <summary>Drops an adapter's held reading once it is older than <see cref="HoldFor"/>.</summary>
+    private void Expire(InterfaceMeter meter, DateTime now)
+    {
+        if (_readAt.TryGetValue(meter.Id, out var at) && now - at <= HoldFor)
+            return;
+
+        _byAdapter.Remove(meter.Id);
+        _readAt.Remove(meter.Id);
+        meter.Mix = null;
     }
 
     /// <summary>Takes the leaders for one adapter and settles them into their colour slots.</summary>
