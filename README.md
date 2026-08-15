@@ -50,6 +50,13 @@ removed automatically.
 Hovering over an interface's meters — bars, stream, or a widget row — shows the five applications
 using the most bandwidth on *that* interface over the last minute, with separate down and up rates.
 
+Each application carries a colour swatch, and the stream ribbon is split into bands in those same
+colours — stacked outward from the spine, so the biggest consumer's share of the ribbon's thickness
+is painted in its colour, the next in its own, and so on. Whatever the store cannot attribute is left
+in the plain gradient. An application keeps its colour for as long as it stays in the top five, so
+two apps trading places doesn't repaint the ribbon. Usage is sampled every 5 seconds; a change in
+the mix enters at the right edge and scrolls off with the traffic it describes.
+
 The figures come from the Windows per-app network usage store
 (`ConnectionProfile.GetAttributedNetworkUsageAsync`), which is the only per-process view available
 without elevation: the ETW kernel provider Task Manager uses refuses to start unless the app runs

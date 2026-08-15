@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
+using System.Windows.Media;
 using Windows.Networking.Connectivity;
 
 namespace NetAnalyzer;
@@ -13,33 +14,51 @@ public sealed class AppUsage
     public required double BytesReceived { get; init; }
     public required double BytesSent { get; init; }
 
+    /// <summary>Colour slot this application holds on its interface.</summary>
+    public required int Slot { get; init; }
+
+    /// <summary>Legend dot, the same colour as this application's band in the ribbon.</summary>
+    public Brush Swatch => TalkerPalette.Swatch(Slot);
+
     public double Total => BytesReceived + BytesSent;
     public string DownText { get; init; } = "";
     public string UpText { get; init; } = "";
 }
 
 /// <summary>
-/// Per-application bandwidth for a single interface, from the WinRT network usage store.
+/// Per-application bandwidth for every interface, from the WinRT network usage store.
 ///
 /// This is the only per-process view Windows offers without elevation — the ETW kernel provider
 /// that Task Manager uses refuses to start unless the app runs as administrator. The trade-off is
 /// that figures come from an aggregated store rather than live counters, so they lag the meters
 /// slightly and are attributed per application rather than per process.
 ///
-/// Exposed as a singleton because the tooltip lives in a popup, outside the window's DataContext.
+/// Sampled on a slow timer rather than on hover: the same figures now colour the stream ribbons,
+/// so they have to be there before anybody points at anything. Exposed as a singleton because the
+/// tooltip lives in a popup, outside the window's DataContext.
 /// </summary>
 public sealed class TopTalkers : INotifyPropertyChanged
 {
     /// <summary>How far back to sample. The store buckets coarsely, so a very short window is empty.</summary>
     private static readonly TimeSpan Window = TimeSpan.FromMinutes(1);
 
-    private const int MaxEntries = 5;
+    private const int MaxEntries = TalkerPalette.SlotCount;
 
     public static TopTalkers Instance { get; } = new();
 
-    private string _status = "Hover to load…";
+    private string _status = "Sampling…";
     private string _scope = "";
     private bool _busy;
+
+    /// <summary>Latest reading per adapter, ordered highest first, keyed by adapter id.</summary>
+    private readonly Dictionary<string, List<Talker>> _byAdapter =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Colour assignments per adapter, kept across refreshes so they stay put.</summary>
+    private readonly Dictionary<string, TalkerSlots> _slots =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private bool _unavailable;
 
     public ObservableCollection<AppUsage> Items { get; } = new();
 
@@ -57,8 +76,45 @@ public sealed class TopTalkers : INotifyPropertyChanged
         private set => Set(ref _scope, value);
     }
 
-    /// <summary>Loads the top consumers for one adapter. Safe to call repeatedly; overlaps are dropped.</summary>
-    public async Task RefreshAsync(string adapterId, string adapterName, bool useBits)
+    /// <summary>One application's slice of an interface, before it is dressed up for display.</summary>
+    private readonly record struct Talker(string Name, int Slot, double Rx, double Tx);
+
+    /// <summary>
+    /// Fills the tooltip from the latest reading for one interface. Cheap and synchronous — the
+    /// figures are already in hand, so hovering shows them immediately.
+    /// </summary>
+    public void Show(InterfaceMeter meter, bool useBits)
+    {
+        Scope = $"{meter.Name} · last {Window.TotalSeconds:N0}s";
+
+        Items.Clear();
+        if (_byAdapter.TryGetValue(meter.Id, out var talkers))
+        {
+            var seconds = Window.TotalSeconds;
+            foreach (var t in talkers)
+            {
+                Items.Add(new AppUsage
+                {
+                    Name = t.Name,
+                    Slot = t.Slot,
+                    BytesReceived = t.Rx,
+                    BytesSent = t.Tx,
+                    DownText = Rate.Format(t.Rx / seconds, useBits),
+                    UpText = Rate.Format(t.Tx / seconds, useBits),
+                });
+            }
+        }
+
+        Status = Items.Count > 0 ? ""
+            : _unavailable ? "Per-app usage unavailable"
+            : "No attributed traffic recorded";
+    }
+
+    /// <summary>
+    /// Re-reads the usage store and republishes each meter's colour mix. Safe to call repeatedly;
+    /// overlapping calls are dropped rather than queued.
+    /// </summary>
+    public async Task RefreshAsync(IReadOnlyList<InterfaceMeter> meters)
     {
         if (_busy)
             return;
@@ -66,32 +122,23 @@ public sealed class TopTalkers : INotifyPropertyChanged
 
         try
         {
-            Scope = $"{adapterName} · last {Window.TotalSeconds:N0}s";
+            var usage = await Task.Run(Collect);
+            _unavailable = false;
 
-            var usage = await Task.Run(() => Collect(adapterId));
-
-            Items.Clear();
-            foreach (var app in usage
-                .OrderByDescending(u => u.Value.rx + u.Value.tx)
-                .Take(MaxEntries))
+            foreach (var meter in meters)
             {
-                var seconds = Window.TotalSeconds;
-                Items.Add(new AppUsage
-                {
-                    Name = app.Key,
-                    BytesReceived = app.Value.rx,
-                    BytesSent = app.Value.tx,
-                    DownText = Rate.Format(app.Value.rx / seconds, useBits),
-                    UpText = Rate.Format(app.Value.tx / seconds, useBits),
-                });
+                usage.TryGetValue(meter.Id, out var apps);
+                var talkers = Rank(meter.Id, apps);
+                _byAdapter[meter.Id] = talkers;
+                meter.Mix = BuildMix(talkers);
             }
-
-            Status = Items.Count == 0 ? "No attributed traffic recorded" : "";
         }
         catch (Exception e) when (e is not OutOfMemoryException)
         {
-            Items.Clear();
-            Status = "Per-app usage unavailable";
+            _unavailable = true;
+            _byAdapter.Clear();
+            foreach (var meter in meters)
+                meter.Mix = null;
         }
         finally
         {
@@ -99,10 +146,53 @@ public sealed class TopTalkers : INotifyPropertyChanged
         }
     }
 
-    /// <summary>Sums attributed usage across the connection profiles bound to this adapter.</summary>
-    private static Dictionary<string, (double rx, double tx)> Collect(string adapterId)
+    /// <summary>Takes the leaders for one adapter and settles them into their colour slots.</summary>
+    private List<Talker> Rank(string adapterId, Dictionary<string, (double rx, double tx)>? apps)
     {
-        var totals = new Dictionary<string, (double rx, double tx)>(StringComparer.OrdinalIgnoreCase);
+        if (apps is null || apps.Count == 0)
+            return new List<Talker>();
+
+        var leaders = apps
+            .OrderByDescending(a => a.Value.rx + a.Value.tx)
+            .Take(MaxEntries)
+            .ToList();
+
+        if (!_slots.TryGetValue(adapterId, out var slots))
+            _slots[adapterId] = slots = new TalkerSlots();
+        slots.Sync(leaders.Select(a => a.Key).ToList());
+
+        return leaders
+            .Select(a => new Talker(a.Key, slots.SlotOf(a.Key), a.Value.rx, a.Value.tx))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Folds the leaders into per-band totals. Anything the store attributed but that did not make
+    /// the cut lands in the neutral band, so the bands still add up to the whole ribbon.
+    /// </summary>
+    private static TalkerMix? BuildMix(List<Talker> talkers)
+    {
+        if (talkers.Count == 0)
+            return null;
+
+        var rx = new double[TalkerPalette.BandCount];
+        var tx = new double[TalkerPalette.BandCount];
+
+        foreach (var t in talkers)
+        {
+            var band = t.Slot >= 0 ? t.Slot : TalkerPalette.OtherSlot;
+            rx[band] += t.Rx;
+            tx[band] += t.Tx;
+        }
+
+        return TalkerMix.Build(rx, tx);
+    }
+
+    /// <summary>Sums attributed usage per adapter across every connection profile, in one sweep.</summary>
+    private static Dictionary<string, Dictionary<string, (double rx, double tx)>> Collect()
+    {
+        var byAdapter = new Dictionary<string, Dictionary<string, (double rx, double tx)>>(
+            StringComparer.OrdinalIgnoreCase);
 
         var end = DateTimeOffset.Now;
         var start = end - Window;
@@ -110,11 +200,16 @@ public sealed class TopTalkers : INotifyPropertyChanged
 
         foreach (var profile in NetworkInformation.GetConnectionProfiles())
         {
-            if (!MatchesAdapter(profile, adapterId))
+            var adapterId = AdapterIdOf(profile);
+            if (adapterId is null)
                 continue;
 
             var attributed = profile.GetAttributedNetworkUsageAsync(start, end, states)
                 .AsTask().GetAwaiter().GetResult();
+
+            if (!byAdapter.TryGetValue(adapterId, out var totals))
+                byAdapter[adapterId] = totals =
+                    new Dictionary<string, (double rx, double tx)>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var entry in attributed)
             {
@@ -129,25 +224,21 @@ public sealed class TopTalkers : INotifyPropertyChanged
             }
         }
 
-        return totals;
+        return byAdapter;
     }
 
-    private static bool MatchesAdapter(ConnectionProfile profile, string adapterId)
+    /// <summary>The adapter this profile runs over, in the same form as NetworkInterface.Id.</summary>
+    private static string? AdapterIdOf(ConnectionProfile profile)
     {
         try
         {
-            var id = profile.NetworkAdapter?.NetworkAdapterId;
-            if (id is null)
-                return false;
-
             // NetworkInterface.Id is the same GUID in registry braces form.
-            return string.Equals(
-                id.Value.ToString("B"), adapterId.Trim(), StringComparison.OrdinalIgnoreCase);
+            return profile.NetworkAdapter?.NetworkAdapterId.ToString("B");
         }
         catch (Exception)
         {
             // A profile whose adapter has gone away throws rather than returning null.
-            return false;
+            return null;
         }
     }
 

@@ -22,6 +22,14 @@ public enum ViewMode
 public sealed class NetworkMonitor : INotifyPropertyChanged
 {
     private readonly DispatcherTimer _timer;
+
+    /// <summary>
+    /// Per-application sampling runs on its own, slower clock: the usage store it reads is
+    /// bucketed by the minute and querying it costs far more than a counter read, so tying it to
+    /// the poll interval would burn CPU for no fresher numbers.
+    /// </summary>
+    private readonly DispatcherTimer _talkerTimer;
+
     private readonly Dictionary<string, InterfaceMeter> _byId = new();
 
     /// <summary>Saved per-interface state, keyed by adapter id, including adapters not currently visible.</summary>
@@ -51,6 +59,12 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
             Interval = TimeSpan.FromMilliseconds(_intervalMs),
         };
         _timer.Tick += async (_, _) => await PollAsync();
+
+        _talkerTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromSeconds(5),
+        };
+        _talkerTimer.Tick += async (_, _) => await TopTalkers.Instance.RefreshAsync(Interfaces);
 
         // A drag reorder shows up here as a Move; that is a preference worth persisting.
         Interfaces.CollectionChanged += (_, e) =>
@@ -299,10 +313,16 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
 
         _lastTimestamp = Stopwatch.GetTimestamp();
         _timer.Start();
+        _talkerTimer.Start();
         _ = PollAsync();
+        _ = TopTalkers.Instance.RefreshAsync(Interfaces);
     }
 
-    public void Stop() => _timer.Stop();
+    public void Stop()
+    {
+        _timer.Stop();
+        _talkerTimer.Stop();
+    }
 
     public void ResetTotals()
     {

@@ -59,17 +59,22 @@
                         <DataTemplate>
                             <Grid Margin="0,2">
                                 <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="{Binding Name}" FontSize="11"
+                                <!-- Same colour as this application's band in the stream ribbon -->
+                                <Rectangle Grid.Column="0" Width="9" Height="9" RadiusX="2" RadiusY="2"
+                                           Fill="{Binding Swatch, Mode=OneWay}"
+                                           VerticalAlignment="Center" Margin="0,0,7,0"/>
+                                <TextBlock Grid.Column="1" Text="{Binding Name}" FontSize="11"
                                            TextTrimming="CharacterEllipsis" Margin="0,0,12,0"/>
-                                <TextBlock Grid.Column="1" FontFamily="Consolas" FontSize="11"
+                                <TextBlock Grid.Column="2" FontFamily="Consolas" FontSize="11"
                                            Foreground="#3AD17E" TextAlignment="Right" MinWidth="74">
                                     <Run Text="↓"/><Run Text="{Binding DownText, Mode=OneWay}"/>
                                 </TextBlock>
-                                <TextBlock Grid.Column="2" FontFamily="Consolas" FontSize="11"
+                                <TextBlock Grid.Column="3" FontFamily="Consolas" FontSize="11"
                                            Foreground="#3AC6E8" TextAlignment="Right" MinWidth="74">
                                     <Run Text="↑"/><Run Text="{Binding UpText, Mode=OneWay}"/>
                                 </TextBlock>
@@ -103,7 +108,8 @@
                                    PixelsPerSecond="{Binding DataContext.StreamSpeed,
                                        RelativeSource={RelativeSource AncestorType=Window}}"
                                    InLevel="{Binding InLevel, Mode=OneWay}"
-                                   OutLevel="{Binding OutLevel, Mode=OneWay}"/>
+                                   OutLevel="{Binding OutLevel, Mode=OneWay}"
+                                   Mix="{Binding Mix, Mode=OneWay}"/>
 
                 <StackPanel Grid.Column="2" Margin="8,0,0,0" VerticalAlignment="Center">
                     <TextBlock Text="{Binding InRateText, Mode=OneWay}" FontFamily="Consolas"
@@ -312,6 +318,7 @@
                                                RelativeSource={RelativeSource AncestorType=Window}}"
                                            InLevel="{Binding InLevel, Mode=OneWay}"
                                            OutLevel="{Binding OutLevel, Mode=OneWay}"
+                                           Mix="{Binding Mix, Mode=OneWay}"
                                            Visibility="{Binding DataContext.Mode,
                                                RelativeSource={RelativeSource AncestorType=Window},
                                                Converter={StaticResource ModeVis},

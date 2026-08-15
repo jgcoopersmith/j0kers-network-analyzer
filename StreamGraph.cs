@@ -18,7 +18,12 @@ public sealed class StreamGraph : FrameworkElement
     private readonly List<Sample> _history = new();
     private bool _hooked;
 
-    private readonly record struct Sample(double Time, double In, double Out);
+    /// <summary>
+    /// One plotted knot. Each carries the consumer mix that was current when it was taken, so a
+    /// change in the mix enters at the right edge and scrolls off with the traffic it describes
+    /// rather than repainting history that was already drawn.
+    /// </summary>
+    private readonly record struct Sample(double Time, double In, double Out, TalkerMix? Mix);
 
     /// <summary>Seconds for the drawn level to close most of the gap to a new reading.</summary>
     private const double SmoothingSeconds = 0.55;
@@ -38,6 +43,20 @@ public sealed class StreamGraph : FrameworkElement
     /// <summary>Scroll speed. Also sets how much history fits: width / this = seconds on screen.</summary>
     public static readonly DependencyProperty PixelsPerSecondProperty = DependencyProperty.Register(
         nameof(PixelsPerSecond), typeof(double), typeof(StreamGraph), new PropertyMetadata(60.0));
+
+    /// <summary>
+    /// How the traffic divides between the top consumers. Null draws the plain two-tone ribbon;
+    /// otherwise the ribbon is split into bands, one per consumer, stacked outward from the spine
+    /// in the same colours the tooltip lists them in.
+    /// </summary>
+    public static readonly DependencyProperty MixProperty = DependencyProperty.Register(
+        nameof(Mix), typeof(TalkerMix), typeof(StreamGraph), new PropertyMetadata(null));
+
+    public TalkerMix? Mix
+    {
+        get => (TalkerMix?)GetValue(MixProperty);
+        set => SetValue(MixProperty, value);
+    }
 
     public double InLevel
     {
@@ -110,7 +129,7 @@ public sealed class StreamGraph : FrameworkElement
         // Plot the smoothed value on a fixed cadence, independent of polling: the ribbon gets
         // closely spaced knots, so its outline curves instead of stepping from poll to poll.
         if (_history.Count == 0 || now - _history[^1].Time >= SampleSeconds)
-            _history.Add(new Sample(now, _smoothIn, _smoothOut));
+            _history.Add(new Sample(now, _smoothIn, _smoothOut, Mix));
 
         // Prune here rather than in OnRender: pruning has to happen on the same schedule as
         // appending, and OnRender is not guaranteed to run.
@@ -173,9 +192,90 @@ public sealed class StreamGraph : FrameworkElement
 
             DrawRibbon(dc, inPoints, centre, upward: true);
             DrawRibbon(dc, outPoints, centre, upward: false);
+
+            DrawBands(dc, w, centre, maxHalf, pps, now, inbound: true);
+            DrawBands(dc, w, centre, maxHalf, pps, now, inbound: false);
         }
 
         dc.Pop();
+    }
+
+    /// <summary>
+    /// Paints one coloured band per top consumer over the base ribbon, innermost first. Each band
+    /// is the strip between two boundary curves, both drawn through the same knots as the ribbon
+    /// outline so they bend with it. Whatever the consumers do not account for is left showing the
+    /// base gradient, so unattributed traffic reads as it always did.
+    /// </summary>
+    private void DrawBands(DrawingContext dc, double w, double centre, double maxHalf,
+        double pps, double now, bool inbound)
+    {
+        var count = _history.Count + 1;
+        var lower = new List<Point>(count);
+        var upper = new List<Point>(count);
+        var sign = inbound ? -1 : 1;
+
+        for (var band = 0; band < TalkerPalette.SlotCount; band++)
+        {
+            lower.Clear();
+            upper.Clear();
+            var occupied = false;
+
+            foreach (var s in _history)
+            {
+                var x = w - (now - s.Time) * pps;
+                var t = Thickness(inbound ? s.In : s.Out, maxHalf);
+                var from = s.Mix?.Cum(band, inbound) ?? TalkerMix.NullCum(band);
+                var to = s.Mix?.Cum(band + 1, inbound) ?? TalkerMix.NullCum(band + 1);
+                occupied |= to - from > 0.0005;
+                lower.Add(new Point(x, centre + sign * t * from));
+                upper.Add(new Point(x, centre + sign * t * to));
+            }
+
+            // Head of the band follows the live smoothed value, like the ribbon outline.
+            {
+                var mix = Mix;
+                var t = Thickness(inbound ? _smoothIn : _smoothOut, maxHalf);
+                var from = mix?.Cum(band, inbound) ?? TalkerMix.NullCum(band);
+                var to = mix?.Cum(band + 1, inbound) ?? TalkerMix.NullCum(band + 1);
+                occupied |= to - from > 0.0005;
+                lower.Add(new Point(w, centre + sign * t * from));
+                upper.Add(new Point(w, centre + sign * t * to));
+            }
+
+            if (!occupied || lower.Count < 2)
+                continue;
+
+            var geo = new StreamGeometry();
+            using (var ctx = geo.Open())
+            {
+                ctx.BeginFigure(lower[0], isFilled: true, isClosed: true);
+                Trace(ctx, lower, forward: true);
+                ctx.LineTo(upper[^1], isStroked: true, isSmoothJoin: true);
+                Trace(ctx, upper, forward: false);
+            }
+            geo.Freeze();
+
+            // The hairline in the track colour keeps neighbouring bands apart even where two
+            // consumers happen to land on similar hues.
+            dc.DrawGeometry(TalkerPalette.Fill(band, inbound), BandGapPen, geo);
+        }
+    }
+
+    /// <summary>Appends a smoothed path through <paramref name="points"/>, in either direction.</summary>
+    private static void Trace(StreamGeometryContext ctx, List<Point> points, bool forward)
+    {
+        var n = points.Count;
+        Point At(int i) => forward ? points[i] : points[n - 1 - i];
+
+        for (var i = 1; i < n; i++)
+        {
+            var prev = At(i - 1);
+            var cur = At(i);
+            var mid = new Point((prev.X + cur.X) / 2, (prev.Y + cur.Y) / 2);
+            ctx.QuadraticBezierTo(prev, mid, isStroked: true, isSmoothJoin: true);
+            if (i == n - 1)
+                ctx.LineTo(cur, isStroked: true, isSmoothJoin: true);
+        }
     }
 
     private static double Thickness(double level, double maxHalf)
@@ -229,6 +329,7 @@ public sealed class StreamGraph : FrameworkElement
 
     private static readonly Pen PenUp = FrozenPen(NearUp);
     private static readonly Pen PenDown = FrozenPen(NearDown);
+    private static readonly Pen BandGapPen = FrozenPen(Color.FromRgb(0x0E, 0x11, 0x16));
 
     private LinearGradientBrush? _fillUp, _fillDown;
     private double _cachedCentre = -1, _cachedHeight = -1;

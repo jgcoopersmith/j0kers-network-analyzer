@@ -33,6 +33,7 @@ public sealed class InterfaceMeter : INotifyPropertyChanged
     private bool _showActivity = true;
     private DropHint _dropHint = DropHint.None;
     private string _status = "";
+    private TalkerMix? _mix;
 
     public InterfaceMeter(NetworkInterface nic)
     {
@@ -85,6 +86,16 @@ public sealed class InterfaceMeter : INotifyPropertyChanged
     {
         get => _showActivity;
         set => Set(ref _showActivity, value);
+    }
+
+    /// <summary>
+    /// How this interface's traffic currently divides between the top consumers, or null when
+    /// none could be attributed. The ribbon colours its bands from this.
+    /// </summary>
+    public TalkerMix? Mix
+    {
+        get => _mix;
+        set => Set(ref _mix, value);
     }
 
     /// <summary>Drives the insertion marker drawn above or below this card while dragging.</summary>
