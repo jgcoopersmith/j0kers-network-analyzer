@@ -81,6 +81,10 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
 
     public ObservableCollection<InterfaceMeter> Interfaces { get; } = new();
 
+    /// <summary>Two-part build version from the assembly, e.g. "v1.50".</summary>
+    public static string VersionText { get; } = "v" + (typeof(NetworkMonitor).Assembly
+        .GetName().Version is { } v ? $"{v.Major}.{v.Minor:00}" : "?");
+
     /// <summary>Raised whenever something worth writing to the settings file changes.</summary>
     public event Action? SettingsChanged;
 

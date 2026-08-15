@@ -122,7 +122,10 @@ public partial class MainWindow : Window
     /// </summary>
     private void ReapplySavedPosition(AppSettings s)
     {
-        if (WindowState != WindowState.Normal || _inWidgetMode)
+        // Applies in widget mode too: the saved position is wherever the window was last, in
+        // whichever mode it was in, and the widget is the more likely of the two to live on a
+        // secondary display.
+        if (WindowState != WindowState.Normal)
             return;
         if (double.IsNaN(s.WindowLeft) || double.IsNaN(s.WindowTop))
             return;

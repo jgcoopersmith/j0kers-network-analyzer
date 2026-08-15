@@ -14,6 +14,8 @@
     <RootNamespace>NetAnalyzer</RootNamespace>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ApplicationIcon>app.ico</ApplicationIcon>
+    <!-- Bumped by 0.01 per commit by .githooks/pre-commit; do not edit by hand. -->
+    <Version>1.50</Version>
   </PropertyGroup>
 
   <ItemGroup>

@@ -557,6 +557,10 @@
                 MouseLeftButtonDown="TitleBar_MouseLeftButtonDown"
                 Visibility="{Binding Mode, Converter={StaticResource ModeVis}, ConverterParameter=!Widget}">
             <DockPanel>
+                <!-- Build version, bottom-right corner -->
+                <TextBlock DockPanel.Dock="Right" FontSize="11" VerticalAlignment="Center"
+                           Margin="14,0,0,0" Foreground="{StaticResource FgDim}"
+                           Text="{x:Static local:NetworkMonitor.VersionText}"/>
                 <TextBlock DockPanel.Dock="Right" Foreground="{StaticResource FgDim}" FontSize="11"
                            VerticalAlignment="Center">
                     <Run Text="interval"/>
@@ -601,6 +605,11 @@
                     ribbons rather than leaving a gap. Dragging it wider lengthens the history
                     each ribbon holds, since a ribbon shows width ÷ flow-speed seconds.
                 -->
+                <!-- Version tucked into the bottom-right corner; the widget has no footer. -->
+                <TextBlock DockPanel.Dock="Bottom" FontSize="9" Foreground="{StaticResource FgDim}"
+                           HorizontalAlignment="Right" Margin="0,-2,0,-4" Opacity="0.8"
+                           Text="{x:Static local:NetworkMonitor.VersionText}"/>
+
                 <ItemsControl ItemsSource="{Binding Interfaces}"
                               ItemTemplate="{StaticResource WidgetTemplate}">
                     <ItemsControl.ItemsPanel>
