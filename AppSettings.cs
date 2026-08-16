@@ -14,6 +14,13 @@ public sealed class InterfaceSetting
     public string Name { get; set; } = "";
 
     public bool ShowActivity { get; set; } = true;
+
+    /// <summary>
+    /// Whether this adapter was actually on screen when the app last closed. Such an adapter is
+    /// listed again on the next run even if it is currently down, so the window comes back looking
+    /// exactly as it was left rather than following whatever happens to be connected at launch.
+    /// </summary>
+    public bool Listed { get; set; }
 }
 
 /// <summary>Everything the app restores on startup. Serialized as JSON.</summary>

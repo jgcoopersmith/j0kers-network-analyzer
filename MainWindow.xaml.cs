@@ -83,7 +83,15 @@ public partial class MainWindow : Window
             // sits on one back onto the primary; without this the app would settle there and
             // then save that position over the real one.
             ReapplySavedPosition(settings);
-            _geometryReady = true;
+
+            // At logon the app can beat its own display layout to the desktop, so one attempt is
+            // not enough: keep trying until the saved spot becomes reachable, or until the grace
+            // period runs out and we accept where we are. Until then geometry is not persisted,
+            // so a temporary position can never overwrite the real one.
+            if (_positionPending)
+                StartPositionRetry(settings);
+            else
+                _geometryReady = true;
         };
         Closing += MainWindow_Closing;
         StateChanged += MainWindow_StateChanged;
@@ -128,15 +136,69 @@ public partial class MainWindow : Window
         if (WindowState != WindowState.Normal)
             return;
         if (double.IsNaN(s.WindowLeft) || double.IsNaN(s.WindowTop))
+        {
+            _positionPending = false;
             return;
+        }
         if (Math.Abs(Left - s.WindowLeft) < 1 && Math.Abs(Top - s.WindowTop) < 1)
+        {
+            _positionPending = false;
             return;
+        }
         if (!IsReachable(s.WindowLeft, s.WindowTop, Width))
             return;
 
         Left = s.WindowLeft;
         Top = s.WindowTop;
+        _positionPending = false;
     }
+
+    /// <summary>
+    /// True while a saved position is known but its display is not there yet. Nothing about the
+    /// window's geometry is written to disk in this state — the saved position is still the truth,
+    /// and the temporary one Windows picked must not replace it.
+    /// </summary>
+    private bool _positionPending = true;
+
+    /// <summary>How long to keep waiting for a missing display before settling for where we are.</summary>
+    private static readonly TimeSpan PositionGrace = TimeSpan.FromSeconds(90);
+
+    /// <summary>
+    /// Waits for the saved position's display to turn up. Driven by both the display-change event
+    /// and a slow poll: docking and driver initialisation do not always announce themselves in a
+    /// way that has the new layout ready by the time the event arrives.
+    /// </summary>
+    private void StartPositionRetry(AppSettings settings)
+    {
+        var deadline = DateTime.UtcNow + PositionGrace;
+        var retry = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+
+        void Finish()
+        {
+            retry.Stop();
+            SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
+            _positionPending = false;
+            _geometryReady = true;
+        }
+
+        void Attempt()
+        {
+            ReapplySavedPosition(settings);
+            if (!_positionPending || DateTime.UtcNow >= deadline)
+                Finish();
+        }
+
+        OnDisplaySettingsChanged = (_, _) => Dispatcher.BeginInvoke(Attempt);
+        SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
+
+        retry.Tick += (_, _) => Attempt();
+        retry.Start();
+
+        // Released either way, so a window closed during the grace period does not leak the hook.
+        Closed += (_, _) => Finish();
+    }
+
+    private EventHandler OnDisplaySettingsChanged = (_, _) => { };
 
     private void OnSessionEnding(object? sender, SessionEndingEventArgs e)
     {
@@ -165,8 +227,19 @@ public partial class MainWindow : Window
             ? new Rect(Left, Top, Width, Height)
             : RestoreBounds;
 
-        settings.WindowLeft = bounds.Left;
-        settings.WindowTop = bounds.Top;
+        // While the saved display is still missing, the window is parked somewhere Windows chose.
+        // Writing that would discard the position we are still trying to get back to — and a save
+        // can be triggered by any preference change, not just by moving the window.
+        if (_positionPending)
+        {
+            settings.WindowLeft = _restoreLeft;
+            settings.WindowTop = _restoreTop;
+        }
+        else
+        {
+            settings.WindowLeft = bounds.Left;
+            settings.WindowTop = bounds.Top;
+        }
 
         // The two modes have independent sizes, so record whichever one is not on screen from
         // its remembered value rather than from the live window.
@@ -185,8 +258,15 @@ public partial class MainWindow : Window
         SettingsStore.Save(settings);
     }
 
+    /// <summary>The position to get back to, held while <see cref="_positionPending"/> is set.</summary>
+    private double _restoreLeft = double.NaN;
+    private double _restoreTop = double.NaN;
+
     private void RestoreWindowBounds(AppSettings s)
     {
+        _restoreLeft = s.WindowLeft;
+        _restoreTop = s.WindowTop;
+
         if (s.WidgetWidth >= WidgetMinWidth && s.WidgetHeight >= WidgetMinHeight)
             _widgetSize = new Size(s.WidgetWidth, s.WidgetHeight);
 

@@ -38,6 +38,18 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
     /// <summary>Saved display order as adapter ids; position in this list is the sort rank.</summary>
     private List<string> _savedOrder = new();
 
+    /// <summary>
+    /// Adapters that were on screen when the app last closed. These bypass the status and type
+    /// filters, so a Wi-Fi radio that is not associated yet or a VPN whose service is still coming
+    /// up at logon still takes its place in the list instead of the window rebuilding itself around
+    /// whatever happened to be connected at that moment.
+    ///
+    /// Replaced wholesale rather than mutated: the polling thread reads it while the UI thread can
+    /// be changing it. Cleared by <see cref="Resync"/>, which is the way back to a list of only
+    /// what is genuinely live.
+    /// </summary>
+    private HashSet<string> _pinned = new(StringComparer.OrdinalIgnoreCase);
+
     private long _lastTimestamp;
     private bool _polling;
     private int _intervalMs = 500;
@@ -66,15 +78,19 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
         };
         _talkerTimer.Tick += async (_, _) => await TopTalkers.Instance.RefreshAsync(Interfaces);
 
-        // A drag reorder shows up here as a Move; that is a preference worth persisting.
         Interfaces.CollectionChanged += (_, e) =>
         {
-            if (e.Action != System.Collections.Specialized.NotifyCollectionChangedAction.Move)
-                return;
+            // A drag reorder shows up as a Move. Refresh the ranks with it, so an adapter that
+            // appears later this session is placed according to the order as it stands now rather
+            // than as it was at startup.
+            if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Move)
+                _savedOrder = CaptureInterfaces().Select(i => i.Id).ToList();
 
-            // Refresh the ranks too, so an adapter that appears later this session is placed
-            // according to the order as it stands now rather than as it was at startup.
-            _savedOrder = CaptureInterfaces().Select(i => i.Id).ToList();
+            // Any change to the list is worth writing: which adapters are on screen is now part of
+            // what gets restored, and adapters coming and going is precisely what would otherwise
+            // go unrecorded until some unrelated preference happened to change. The ranks are
+            // deliberately left alone here — rebuilding them from a half-populated list during
+            // startup would overwrite the saved order with whatever enumerated first.
             SettingsChanged?.Invoke();
         };
     }
@@ -224,13 +240,17 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
 
         _saved.Clear();
         _savedOrder = new List<string>();
+        var pinned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var i in s.Interfaces)
         {
             if (string.IsNullOrEmpty(i.Id) || _saved.ContainsKey(i.Id))
                 continue;
             _saved[i.Id] = i;
             _savedOrder.Add(i.Id);
+            if (i.Listed)
+                pinned.Add(i.Id);
         }
+        _pinned = pinned;
 
         foreach (var name in new[]
         {
@@ -274,14 +294,30 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
 
         foreach (var m in Interfaces)
         {
-            list.Add(new InterfaceSetting { Id = m.Id, Name = m.Name, ShowActivity = m.ShowActivity });
+            list.Add(new InterfaceSetting
+            {
+                Id = m.Id,
+                Name = m.Name,
+                ShowActivity = m.ShowActivity,
+                // On screen right now, so it is part of the layout to reproduce next launch.
+                Listed = true,
+            });
             seen.Add(m.Id);
         }
 
         foreach (var id in _savedOrder)
         {
-            if (seen.Add(id) && _saved.TryGetValue(id, out var saved))
-                list.Add(saved);
+            if (!seen.Add(id) || !_saved.TryGetValue(id, out var saved))
+                continue;
+
+            // Known but not on screen: keep its preferences, but it is not part of the layout.
+            list.Add(new InterfaceSetting
+            {
+                Id = saved.Id,
+                Name = saved.Name,
+                ShowActivity = saved.ShowActivity,
+                Listed = false,
+            });
         }
 
         return list;
@@ -342,7 +378,9 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
         try
         {
             // Enumeration touches the IP helper API, so keep it off the UI thread.
-            var samples = await Task.Run(ReadSamples);
+            // Snapshot the pin set for the worker: it can be swapped out from under us here.
+            var pinned = _pinned;
+            var samples = await Task.Run(() => ReadSamples(pinned));
 
             var now = Stopwatch.GetTimestamp();
             var elapsed = (now - _lastTimestamp) / (double)Stopwatch.Frequency;
@@ -362,17 +400,21 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
         }
     }
 
-    private List<Sample> ReadSamples()
+    private List<Sample> ReadSamples(HashSet<string> pinned)
     {
         var list = new List<Sample>();
         foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
         {
-            if (nic.NetworkInterfaceType == NetworkInterfaceType.Loopback && !_showLoopback)
-                continue;
-            if (nic.OperationalStatus != OperationalStatus.Up && !_showInactive)
-                continue;
-            if (_hideFilterAdapters && IsFilterAdapter(nic))
-                continue;
+            // An adapter that was on screen last time keeps its place whatever its state now.
+            if (!pinned.Contains(nic.Id))
+            {
+                if (nic.NetworkInterfaceType == NetworkInterfaceType.Loopback && !_showLoopback)
+                    continue;
+                if (nic.OperationalStatus != OperationalStatus.Up && !_showInactive)
+                    continue;
+                if (_hideFilterAdapters && IsFilterAdapter(nic))
+                    continue;
+            }
 
             try
             {
@@ -474,6 +516,11 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
         // Hold on to the current order so toggling a filter doesn't scramble it.
         foreach (var m in Interfaces)
             RememberInterface(m);
+
+        // Changing a filter is an explicit instruction about what belongs in the list, so it
+        // outranks the pins carried over from last session — this is how a permanently dead
+        // adapter gets dropped, by toggling a filter off and on again.
+        _pinned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         _savedOrder = CaptureInterfaces().Select(i => i.Id).ToList();
 
