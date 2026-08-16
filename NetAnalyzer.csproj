@@ -15,7 +15,12 @@
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <!-- Bumped by 0.01 per commit by .githooks/pre-commit; do not edit by hand. -->
-    <Version>1.50</Version>
+    <Version>1.51</Version>
+    <!-- Publish as one exe: the app is run from a copy of NetAnalyzer.exe alone. -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
   </PropertyGroup>
 
   <ItemGroup>
@@ -32,5 +37,18 @@
     -->
     <EmbeddedResource Include="app.ico"/>
   </ItemGroup>
+
+  <!--
+    The exe is launched from the desktop dev folder, not from publish/. Copy it there after every
+    publish so a rebuild is what actually runs next; skipped if the folder is not present.
+  -->
+  <Target Name="CopyToDevFolder" AfterTargets="Publish">
+    <PropertyGroup>
+      <DevFolder>$(USERPROFILE)\OneDrive\Desktop\j0ker Dev</DevFolder>
+    </PropertyGroup>
+    <Copy Condition="Exists('$(DevFolder)')"
+          SourceFiles="$(PublishDir)NetAnalyzer.exe"
+          DestinationFolder="$(DevFolder)" ContinueOnError="true"/>
+  </Target>
 
 </Project>
