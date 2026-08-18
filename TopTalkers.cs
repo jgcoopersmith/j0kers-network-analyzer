@@ -70,9 +70,13 @@ public sealed class TopTalkers : INotifyPropertyChanged
     private readonly Dictionary<string, DateTime> _readAt =
         new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Colour assignments per adapter, kept across refreshes so they stay put.</summary>
-    private readonly Dictionary<string, TalkerSlots> _slots =
-        new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>
+    /// Colour assignments, shared by every interface rather than kept per adapter. Five hues is
+    /// the most that stays reliably distinguishable on this background, so they are handed out
+    /// across the whole window: two interfaces whose busiest applications differ get different
+    /// colours, instead of each starting again at the first hue and looking identical.
+    /// </summary>
+    private readonly TalkerSlots _slots = new();
 
     private bool _unavailable;
 
@@ -145,18 +149,27 @@ public sealed class TopTalkers : INotifyPropertyChanged
             var usage = await Task.Run(Collect);
             _unavailable = false;
 
-            foreach (var meter in meters)
-            {
-                usage.TryGetValue(meter.Id, out var apps);
-                var talkers = Rank(meter.Id, apps);
+            // Rank each interface on its own first, then hand the shared colours out across all
+            // of them at once — see AssignSlots for why that has to happen in one pass.
+            var ranked = meters
+                .Select(m => (meter: m, leaders: Leaders(usage, m.Id)))
+                .ToList();
 
+            AssignSlots(ranked.Select(r => r.leaders).ToList());
+
+            foreach (var (meter, leaders) in ranked)
+            {
                 // An empty poll is far more often the store mid-flush than the link going
                 // quiet, so the previous reading stands until it ages out.
-                if (talkers.Count == 0)
+                if (leaders.Count == 0)
                 {
                     Expire(meter, now);
                     continue;
                 }
+
+                var talkers = leaders
+                    .Select(a => new Talker(a.Key, _slots.SlotOf(a.Key), a.Value.rx, a.Value.tx))
+                    .ToList();
 
                 _byAdapter[meter.Id] = talkers;
                 _readAt[meter.Id] = now;
@@ -189,24 +202,50 @@ public sealed class TopTalkers : INotifyPropertyChanged
         meter.Mix = null;
     }
 
-    /// <summary>Takes the leaders for one adapter and settles them into their colour slots.</summary>
-    private List<Talker> Rank(string adapterId, Dictionary<string, (double rx, double tx)>? apps)
+    /// <summary>One adapter's biggest consumers, heaviest first.</summary>
+    private static List<KeyValuePair<string, (double rx, double tx)>> Leaders(
+        Dictionary<string, Dictionary<string, (double rx, double tx)>> usage, string adapterId)
     {
-        if (apps is null || apps.Count == 0)
-            return new List<Talker>();
+        if (!usage.TryGetValue(adapterId, out var apps) || apps.Count == 0)
+            return new List<KeyValuePair<string, (double rx, double tx)>>();
 
-        var leaders = apps
+        return apps
             .OrderByDescending(a => a.Value.rx + a.Value.tx)
             .Take(MaxEntries)
             .ToList();
+    }
 
-        if (!_slots.TryGetValue(adapterId, out var slots))
-            _slots[adapterId] = slots = new TalkerSlots();
-        slots.Sync(leaders.Select(a => a.Key).ToList());
+    /// <summary>
+    /// Shares the five colours out over every interface at once.
+    ///
+    /// Claims go round by round — every interface's heaviest application, then every interface's
+    /// second, and so on — rather than filling up from the busiest interface downwards. Ranking
+    /// purely by volume would let one busy link take all five, leaving every other stream a wash
+    /// of the same neutral; going round by round means each interface's leader gets a colour of
+    /// its own first, which is what makes two streams read as different at a glance.
+    ///
+    /// An application seen on two interfaces claims once and keeps one colour on both, so a shared
+    /// hue means the same program rather than a coincidence.
+    /// </summary>
+    private void AssignSlots(List<List<KeyValuePair<string, (double rx, double tx)>>> perAdapter)
+    {
+        var order = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        return leaders
-            .Select(a => new Talker(a.Key, slots.SlotOf(a.Key), a.Value.rx, a.Value.tx))
-            .ToList();
+        for (var depth = 0; depth < MaxEntries; depth++)
+        {
+            foreach (var leaders in perAdapter)
+            {
+                if (depth < leaders.Count && seen.Add(leaders[depth].Key))
+                    order.Add(leaders[depth].Key);
+            }
+        }
+
+        // Only the first few can be held; the rest share the neutral band.
+        if (order.Count > TalkerPalette.SlotCount)
+            order.RemoveRange(TalkerPalette.SlotCount, order.Count - TalkerPalette.SlotCount);
+
+        _slots.Sync(order);
     }
 
     /// <summary>
