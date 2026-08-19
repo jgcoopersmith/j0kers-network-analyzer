@@ -15,7 +15,7 @@
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <!-- Bumped by 0.01 per commit by .githooks/pre-commit; do not edit by hand. -->
-    <Version>1.53</Version>
+    <Version>1.54</Version>
     <!-- Publish as one exe: the app is run from a copy of NetAnalyzer.exe alone. -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>false</SelfContained>
