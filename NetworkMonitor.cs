@@ -299,8 +299,11 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
                 Id = m.Id,
                 Name = m.Name,
                 ShowActivity = m.ShowActivity,
-                // On screen right now, so it is part of the layout to reproduce next launch.
-                Listed = true,
+                // Only adapters switched on are held for next launch. Recording every adapter
+                // that happened to be on screen made the set grow without limit: a pinned adapter
+                // is always on screen, so it pinned itself again at the next save, and anything
+                // that ever came up — a VM switch, a WSL bridge — stayed in the list for good.
+                Listed = m.ShowActivity,
             });
             seen.Add(m.Id);
         }
