@@ -1,4 +1,5 @@
 using Microsoft.Win32;
+using System.IO;
 
 namespace NetAnalyzer;
 
@@ -22,20 +23,56 @@ public static class StartupRegistration
         }
     }
 
-    public static bool IsEnabled
+    /// <summary>The exe path recorded in the Run key, unquoted, or null when there is no entry.</summary>
+    private static string? RegisteredPath
     {
         get
         {
             try
             {
                 using var key = Registry.CurrentUser.OpenSubKey(RunKey);
-                return key?.GetValue(ValueName) is string;
+                if (key?.GetValue(ValueName) is not string value)
+                    return null;
+
+                var path = value.Trim().Trim('"');
+                return path.Length == 0 ? null : path;
             }
             catch (Exception e) when (e is System.Security.SecurityException or UnauthorizedAccessException)
             {
-                return false;
+                return null;
             }
         }
+    }
+
+    public static bool IsEnabled
+    {
+        get
+        {
+            // An entry naming an exe that is no longer there is not enabled in any useful sense:
+            // Windows fails that launch silently, so treating it as on leaves the menu ticked
+            // while nothing happens at logon.
+            var path = RegisteredPath;
+            return path is not null && File.Exists(path);
+        }
+    }
+
+    /// <summary>
+    /// Re-points an existing entry at the running exe once it has moved. The path is otherwise
+    /// only written when the menu item is toggled, so moving the exe breaks launch-at-logon for
+    /// good while the menu still reports it as on.
+    /// </summary>
+    public static void Repair()
+    {
+        var registered = RegisteredPath;
+        if (registered is null)
+            return;
+
+        var exe = Environment.ProcessPath;
+        if (string.IsNullOrEmpty(exe) ||
+            string.Equals(registered, exe, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        SetEnabled(true);
     }
 
     /// <summary>Enables or disables launch-at-logon. Returns the resulting state.</summary>

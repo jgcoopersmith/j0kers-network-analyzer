@@ -72,6 +72,9 @@ public partial class MainWindow : Window
             _monitor.Start();
             ApplyViewMode();
 
+            // Correct a launch-at-logon entry left pointing at an older location of the exe.
+            StartupRegistration.Repair();
+
             // Deferred to Loaded: hiding into the tray only works once the window exists.
             if (settings.HiddenInTray)
                 HideToTray();
