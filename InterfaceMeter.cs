@@ -21,14 +21,39 @@ public sealed class InterfaceMeter : INotifyPropertyChanged
     /// <summary>Smallest top-of-scale, so an idle adapter doesn't amplify noise.</summary>
     private const double MinScaleBytesPerSecond = 64.0 * 1024.0;
 
-    /// <summary>Fraction of the adaptive scale headroom shed per second when traffic drops.</summary>
-    private const double ScaleDecayPerSecond = 0.25;
+    /// <summary>
+    /// Above this, a reported link speed is treated as fiction rather than a ceiling. The VPN
+    /// pseudo-adapters advertise 100 Gb/s; scaling against that would draw every byte they carry
+    /// as a flat line.
+    /// </summary>
+    private const double MaxCredibleLinkBytesPerSecond = 10_000_000_000.0 / 8.0;
+
+    /// <summary>Headroom above the held peak on the adaptive path, so a burst isn't flush at the top.</summary>
+    private const double ScaleHeadroom = 1.25;
+
+    /// <summary>
+    /// Half-life of the held peak on the adaptive path. Long enough that a burst still gives
+    /// context to the quiet stretch after it, which is what makes a trickle read as a trickle.
+    /// </summary>
+    private const double PeakHalfLifeSeconds = 30.0;
 
     private double _inRate, _outRate;
     private double _inLevel, _outLevel;
     private double _inPeak, _outPeak;
     private double _totalIn, _totalOut;
     private double _scaleMax = MinScaleBytesPerSecond;
+
+    /// <summary>Decaying high-water mark driving the scale on adapters with no credible link speed.</summary>
+    private double _heldPeak;
+
+    /// <summary>
+    /// Fixed top-of-scale for adapters that report a link speed we can believe, or zero to put
+    /// this adapter on the adaptive path. Fixed is what lets two interfaces be read against each
+    /// other: the same rate has to draw the same thickness everywhere for a busy link to look
+    /// busier than a quiet one.
+    /// </summary>
+    private readonly double _fixedCeiling;
+
     private bool _isUp;
     private bool _showActivity = true;
     private DropHint _dropHint = DropHint.None;
@@ -43,6 +68,16 @@ public sealed class InterfaceMeter : INotifyPropertyChanged
         InterfaceType = Describe(nic.NetworkInterfaceType);
         LinkSpeedBytesPerSecond = nic.Speed > 0 ? nic.Speed / 8.0 : 0;
         LinkSpeedText = nic.Speed > 0 ? Rate.Format(LinkSpeedBytesPerSecond, asBits: true) : "unknown";
+
+        // Disconnected adapters report -1, and the tunnel adapters report a number they invented,
+        // so neither reaching here is a fault worth surfacing — both just fall back to adaptive.
+        _fixedCeiling = LinkSpeedBytesPerSecond > 0
+            && LinkSpeedBytesPerSecond <= MaxCredibleLinkBytesPerSecond
+            ? Math.Max(LinkSpeedBytesPerSecond, MinScaleBytesPerSecond)
+            : 0;
+
+        if (_fixedCeiling > 0)
+            _scaleMax = _fixedCeiling;
     }
 
     public string Id { get; }
@@ -174,24 +209,34 @@ public sealed class InterfaceMeter : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Grows the scale instantly to fit new traffic and lets it sink back slowly, so a burst
-    /// stays legible and an idle link doesn't turn background chatter into a full bar.
+    /// Sets the top of the logarithmic scale.
+    ///
+    /// Where the adapter reports a credible link speed the ceiling is that speed and never moves,
+    /// so a given rate draws the same thickness on every interface and a quiet link reads as quiet
+    /// beside a busy one. The ceiling used to be derived from the very rate it was scaling —
+    /// max(rate * 1.25, ...) — so it rose in lockstep with the signal and left everything above a
+    /// few tens of KB/s pinned within a couple of percent of full: a 260 KB/s background trickle
+    /// and a 173 MB/s transfer drew the same ribbon, which read as traffic landing on the wrong
+    /// interface.
+    ///
+    /// Adapters with no usable link speed keep an adaptive ceiling, but taken off a slowly
+    /// decaying held peak rather than off the live sample, so a burst still gives context to the
+    /// quiet stretch that follows it instead of the quiet stretch re-inflating to fill the meter.
     /// </summary>
     private void UpdateScale(double peakRate, double elapsedSeconds)
     {
-        var target = Math.Max(peakRate * 1.25, MinScaleBytesPerSecond);
-        if (LinkSpeedBytesPerSecond > 0)
-            target = Math.Min(target, Math.Max(LinkSpeedBytesPerSecond, MinScaleBytesPerSecond));
+        if (_fixedCeiling > 0)
+        {
+            ScaleMax = _fixedCeiling;
+            return;
+        }
 
-        if (target >= ScaleMax)
-        {
-            ScaleMax = target;
-        }
+        if (peakRate >= _heldPeak)
+            _heldPeak = peakRate;
         else
-        {
-            var decay = Math.Clamp(ScaleDecayPerSecond * elapsedSeconds, 0, 1);
-            ScaleMax = ScaleMax + (target - ScaleMax) * decay;
-        }
+            _heldPeak *= Math.Pow(0.5, elapsedSeconds / PeakHalfLifeSeconds);
+
+        ScaleMax = Math.Max(_heldPeak * ScaleHeadroom, MinScaleBytesPerSecond);
     }
 
     /// <summary>Maps a rate onto 0..1 logarithmically, the way an audio spectrum meter does.</summary>
