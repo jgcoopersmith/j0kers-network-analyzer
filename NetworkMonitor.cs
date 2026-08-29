@@ -52,6 +52,14 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
 
     private long _lastTimestamp;
     private bool _polling;
+
+    /// <summary>
+    /// Whether the first sweep has run. Until it has, an adapter with nothing on file is one of
+    /// the ones present at launch and comes up switched on; after it, the same adapter is one
+    /// that genuinely arrived mid-session — a VM switch, a tunnel, a USB NIC — and comes up
+    /// switched off so it takes its place in the list without rearranging what is on screen.
+    /// </summary>
+    private bool _populated;
     private int _intervalMs = 500;
     private bool _showInactive;
     private bool _showLoopback;
@@ -469,7 +477,13 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
                 meter = new InterfaceMeter(s.Nic)
                 {
                     UseBits = _useBits,
-                    ShowActivity = !_saved.TryGetValue(s.Nic.Id, out var saved) || saved.ShowActivity,
+                    // An adapter we have seen before keeps whatever it was left on. One we have
+                    // not is only switched on if it was here at launch: an adapter that turns up
+                    // later must not add itself to the widget or push the meters around, so it
+                    // arrives off and waits to be picked.
+                    ShowActivity = _saved.TryGetValue(s.Nic.Id, out var saved)
+                        ? saved.ShowActivity
+                        : !_populated,
                 };
                 meter.PropertyChanged += Meter_PropertyChanged;
                 _byId[s.Nic.Id] = meter;
@@ -490,6 +504,20 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
             m.PropertyChanged -= Meter_PropertyChanged;
             _byId.Remove(m.Id);
             Interfaces.RemoveAt(i);
+        }
+
+        // Set last: everything discovered by this first sweep counts as having been here at
+        // launch, however many adapters that turned out to be.
+        if (!_populated)
+        {
+            _populated = true;
+
+            // On a profile with nothing on file the launch adapters have no rank, and an
+            // unranked adapter sorts to the end. The first one to be remembered would take
+            // rank 0 and jump ahead of all of them the next time it was re-inserted, so seed
+            // the ranks from the launch order and let later arrivals append after it.
+            if (_savedOrder.Count == 0)
+                _savedOrder = Interfaces.Select(i => i.Id).ToList();
         }
 
         OnPropertyChanged(nameof(AggregateInText));
