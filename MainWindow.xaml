@@ -262,6 +262,28 @@
                                     </Style>
                                 </TextBlock.Style>
                             </TextBlock>
+                            <!--
+                                The address is what ties an adapter to a network. Without it the
+                                window gives no way to tell which interface carries 192.168.8.x,
+                                so traffic leaving by the other one looks like a misattribution.
+                                Kept visible on collapsed cards too — it is the identity, not detail.
+                            -->
+                            <TextBlock Text="{Binding AddressText, Mode=OneWay}" Margin="9,0,0,0"
+                                       FontFamily="Consolas" FontSize="11" Foreground="#8FA3BF"
+                                       VerticalAlignment="Center"/>
+
+                            <!--
+                                Several adapters can carry a default route at once and exactly one
+                                wins; anything without a more specific route leaves by this one,
+                                whatever subnet the destination appears to belong to.
+                            -->
+                            <Border Background="#243447" CornerRadius="3" Padding="5,1"
+                                    Margin="7,0,0,0" VerticalAlignment="Center"
+                                    ToolTip="Windows sends traffic here when no other interface has a route to the destination"
+                                    Visibility="{Binding IsDefaultRoute, Converter={StaticResource BoolToVis}}">
+                                <TextBlock Text="default route" FontSize="9.5" Foreground="#9FC3E8"/>
+                            </Border>
+
                             <TextBlock Text="{Binding Description}" FontSize="11" Margin="9,0,0,0"
                                        Foreground="{StaticResource FgDim}" VerticalAlignment="Center"
                                        TextTrimming="CharacterEllipsis" MaxWidth="320"

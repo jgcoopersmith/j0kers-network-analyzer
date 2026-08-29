@@ -59,6 +59,8 @@ public sealed class InterfaceMeter : INotifyPropertyChanged
     private DropHint _dropHint = DropHint.None;
     private string _status = "";
     private TalkerMix? _mix;
+    private string _addressText = "";
+    private bool _isDefaultRoute;
 
     public InterfaceMeter(NetworkInterface nic)
     {
@@ -131,6 +133,36 @@ public sealed class InterfaceMeter : INotifyPropertyChanged
     {
         get => _mix;
         set => Set(ref _mix, value);
+    }
+
+    /// <summary>
+    /// This adapter's IPv4 address and prefix, e.g. "192.168.8.124/24", or empty when it holds
+    /// none. Shown in the header because the adapter name says nothing about which network it
+    /// carries: without it there is no way to tell from the window that 192.168.8.x traffic
+    /// belongs on Wi-Fi and everything else leaves by the wire.
+    /// </summary>
+    public string AddressText
+    {
+        get => _addressText;
+        private set => Set(ref _addressText, value);
+    }
+
+    /// <summary>
+    /// Whether this is the adapter Windows picks for a destination it has no specific route to.
+    /// Two adapters can both carry a default route, and only one of them wins — which is what
+    /// sends traffic out the wire that looks like it should have gone wireless.
+    /// </summary>
+    public bool IsDefaultRoute
+    {
+        get => _isDefaultRoute;
+        private set => Set(ref _isDefaultRoute, value);
+    }
+
+    /// <summary>Applies freshly read addressing. Called off the poll, not per tick.</summary>
+    public void SetAddressing(string addressText, bool isDefaultRoute)
+    {
+        AddressText = addressText;
+        IsDefaultRoute = isDefaultRoute;
     }
 
     /// <summary>Drives the insertion marker drawn above or below this card while dragging.</summary>

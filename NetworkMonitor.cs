@@ -1,8 +1,11 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Net;
 using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Windows.Threading;
 
 namespace NetAnalyzer;
@@ -60,6 +63,13 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
     /// switched off so it takes its place in the list without rearranging what is on screen.
     /// </summary>
     private bool _populated;
+
+    /// <summary>
+    /// Set when the addressing on screen needs re-reading. Reading it is far heavier than a
+    /// counter read and the answer almost never moves, so it is done at startup, whenever a new
+    /// adapter joins the list, and whenever Windows reports an address change — not every tick.
+    /// </summary>
+    private volatile bool _addressRefreshDue = true;
     private int _intervalMs = 500;
     private bool _showInactive;
     private bool _showLoopback;
@@ -85,6 +95,10 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
             Interval = TimeSpan.FromSeconds(5),
         };
         _talkerTimer.Tick += async (_, _) => await TopTalkers.Instance.RefreshAsync(Interfaces);
+
+        // A DHCP lease landing, a VPN coming up, a cable moving to another subnet: all of these
+        // change which adapter carries which network, and the default route can move with them.
+        NetworkChange.NetworkAddressChanged += (_, _) => _addressRefreshDue = true;
 
         Interfaces.CollectionChanged += (_, e) =>
         {
@@ -391,7 +405,9 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
             // Enumeration touches the IP helper API, so keep it off the UI thread.
             // Snapshot the pin set for the worker: it can be swapped out from under us here.
             var pinned = _pinned;
-            var samples = await Task.Run(() => ReadSamples(pinned));
+            var refreshAddresses = _addressRefreshDue;
+            _addressRefreshDue = false;
+            var samples = await Task.Run(() => ReadSamples(pinned, refreshAddresses));
 
             var now = Stopwatch.GetTimestamp();
             var elapsed = (now - _lastTimestamp) / (double)Stopwatch.Frequency;
@@ -411,9 +427,11 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
         }
     }
 
-    private List<Sample> ReadSamples(HashSet<string> pinned)
+    private List<Sample> ReadSamples(HashSet<string> pinned, bool refreshAddresses)
     {
         var list = new List<Sample>();
+        var bestIndex = refreshAddresses ? BestInterfaceIndex() : 0u;
+
         foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
         {
             // An adapter that was on screen last time keeps its place whatever its state now.
@@ -430,7 +448,9 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
             try
             {
                 var stats = nic.GetIPStatistics();
-                list.Add(new Sample(nic, nic.OperationalStatus, stats.BytesReceived, stats.BytesSent));
+                var address = refreshAddresses ? ReadAddress(nic, bestIndex) : (AddressInfo?)null;
+                list.Add(new Sample(
+                    nic, nic.OperationalStatus, stats.BytesReceived, stats.BytesSent, address));
             }
             catch (NetworkInformationException)
             {
@@ -438,6 +458,62 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
             }
         }
         return list;
+    }
+
+    [DllImport("iphlpapi.dll", ExactSpelling = true)]
+    private static extern int GetBestInterface(uint dwDestAddr, out uint pdwBestIfIndex);
+
+    /// <summary>
+    /// The adapter Windows would use for a destination it has no specific route to. Asked with a
+    /// routable address rather than 0.0.0.0 so the answer reflects the metrics actually in force
+    /// when more than one adapter carries a default route — the case where traffic quietly leaves
+    /// by an interface other than the one its subnet suggests.
+    /// </summary>
+    private static uint BestInterfaceIndex()
+    {
+        try
+        {
+            var dest = BitConverter.ToUInt32(IPAddress.Parse("8.8.8.8").GetAddressBytes(), 0);
+            return GetBestInterface(dest, out var index) == 0 ? index : 0u;
+        }
+        catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException)
+        {
+            return 0u;
+        }
+    }
+
+    /// <summary>Reads one adapter's IPv4 address and whether it holds the winning default route.</summary>
+    private static AddressInfo ReadAddress(NetworkInterface nic, uint bestIndex)
+    {
+        try
+        {
+            var props = nic.GetIPProperties();
+
+            // First IPv4 address only. An adapter can hold several, but the header has room for
+            // the one that identifies the network it carries.
+            var unicast = props.UnicastAddresses.FirstOrDefault(
+                a => a.Address.AddressFamily == AddressFamily.InterNetwork);
+            var text = unicast is null ? "" : $"{unicast.Address}/{unicast.PrefixLength}";
+
+            var isDefault = false;
+            if (bestIndex != 0)
+            {
+                try
+                {
+                    isDefault = props.GetIPv4Properties() is { } v4 && (uint)v4.Index == bestIndex;
+                }
+                catch (NetworkInformationException)
+                {
+                    // No IPv4 stack on this adapter; it cannot be the IPv4 default route.
+                }
+            }
+
+            return new AddressInfo(text, isDefault);
+        }
+        catch (NetworkInformationException)
+        {
+            return new AddressInfo("", false);
+        }
     }
 
     /// <summary>
@@ -488,7 +564,15 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
                 meter.PropertyChanged += Meter_PropertyChanged;
                 _byId[s.Nic.Id] = meter;
                 Interfaces.Insert(RankedIndex(s.Nic.Id), meter);
+
+                // This adapter joined on a round that may not have read addressing, and an
+                // adapter appearing is itself a reason the default route may have moved.
+                _addressRefreshDue = true;
             }
+
+            if (s.Address is { } address)
+                meter.SetAddressing(address.Text, address.IsDefaultRoute);
+
             meter.Update(s.Status, s.BytesReceived, s.BytesSent, elapsed);
         }
 
@@ -570,8 +654,12 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
     public string AggregateInText => Rate.Format(Interfaces.Sum(m => m.InRate), _useBits);
     public string AggregateOutText => Rate.Format(Interfaces.Sum(m => m.OutRate), _useBits);
 
+    /// <summary>One adapter's addressing, read only on the rounds that refresh it.</summary>
+    private readonly record struct AddressInfo(string Text, bool IsDefaultRoute);
+
     private readonly record struct Sample(
-        NetworkInterface Nic, OperationalStatus Status, long BytesReceived, long BytesSent);
+        NetworkInterface Nic, OperationalStatus Status, long BytesReceived, long BytesSent,
+        AddressInfo? Address);
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
