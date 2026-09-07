@@ -61,6 +61,7 @@ public sealed class InterfaceMeter : INotifyPropertyChanged
     private TalkerMix? _mix;
     private string _addressText = "";
     private bool _isDefaultRoute;
+    private int _sampleSequence;
 
     public InterfaceMeter(NetworkInterface nic)
     {
@@ -112,6 +113,13 @@ public sealed class InterfaceMeter : INotifyPropertyChanged
 
     /// <summary>Top of the current logarithmic scale, in bytes/sec.</summary>
     public double ScaleMax { get => _scaleMax; private set => Set(ref _scaleMax, value); }
+
+    /// <summary>
+    /// Counts readings applied to this meter. History views sample off this rather than off a
+    /// rate changing: the two rates are separate properties that arrive separately, and a quiet
+    /// interface reporting the same rate twice still means time passed.
+    /// </summary>
+    public int SampleSequence { get => _sampleSequence; private set => Set(ref _sampleSequence, value); }
 
     public bool UseBits { get; set; }
 
@@ -217,6 +225,9 @@ public sealed class InterfaceMeter : INotifyPropertyChanged
         InPeak = DecayPeak(InPeak, InLevel, elapsedSeconds);
         OutPeak = DecayPeak(OutPeak, OutLevel, elapsedSeconds);
 
+        // Last, so a history view sampling off this reads rates and mix that are already current.
+        SampleSequence = unchecked(SampleSequence + 1);
+
         RaiseTextChanged();
     }
 
@@ -272,12 +283,19 @@ public sealed class InterfaceMeter : INotifyPropertyChanged
     }
 
     /// <summary>Maps a rate onto 0..1 logarithmically, the way an audio spectrum meter does.</summary>
-    private double ToLevel(double rate)
+    private double ToLevel(double rate) => Level(rate, ScaleMax);
+
+    /// <summary>
+    /// The same mapping against an explicit ceiling, for views that plot rates this meter did not
+    /// derive — the per-consumer lines, which must land on the identical scale as the meters they
+    /// sit beside or the two would disagree about how busy the interface is.
+    /// </summary>
+    public static double Level(double rate, double scaleMax)
     {
         if (rate <= FloorBytesPerSecond)
             return 0;
 
-        var top = Math.Max(ScaleMax, FloorBytesPerSecond * 2);
+        var top = Math.Max(scaleMax, FloorBytesPerSecond * 2);
         var level = Math.Log(rate / FloorBytesPerSecond) / Math.Log(top / FloorBytesPerSecond);
         return Math.Clamp(level, 0, 1);
     }

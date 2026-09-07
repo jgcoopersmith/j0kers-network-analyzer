@@ -17,7 +17,9 @@ public enum ViewMode
     Bars,
     /// <summary>Right-to-left flowing ribbon.</summary>
     Stream,
-    /// <summary>Compact always-on-top panel: ribbons and rates for the selected interfaces only.</summary>
+    /// <summary>History graph with a line per top consumer, inbound above the spine and outbound below.</summary>
+    Lines,
+    /// <summary>Compact always-on-top panel: graphs and rates for the selected interfaces only.</summary>
     Widget,
 }
 
@@ -191,11 +193,12 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
         }
     }
 
-    /// <summary>Advances Bars → Stream → Widget → Bars.</summary>
+    /// <summary>Advances Bars → Stream → Lines → Widget → Bars.</summary>
     public void CycleMode() => Mode = _mode switch
     {
         ViewMode.Bars => ViewMode.Stream,
-        ViewMode.Stream => ViewMode.Widget,
+        ViewMode.Stream => ViewMode.Lines,
+        ViewMode.Lines => ViewMode.Widget,
         _ => ViewMode.Bars,
     };
 

@@ -1,4 +1,4 @@
-<Window x:Class="NetAnalyzer.MainWindow"
+﻿<Window x:Class="NetAnalyzer.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:NetAnalyzer"
@@ -104,13 +104,17 @@
                            VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                            Margin="0,0,8,0" ToolTip="{Binding Description}"/>
 
-                <local:StreamGraph Grid.Column="1" MinHeight="22" VerticalAlignment="Stretch"
-                                   Margin="0,2"
-                                   PixelsPerSecond="{Binding DataContext.StreamSpeed,
-                                       RelativeSource={RelativeSource AncestorType=Window}}"
-                                   InLevel="{Binding InLevel, Mode=OneWay}"
-                                   OutLevel="{Binding OutLevel, Mode=OneWay}"
-                                   Mix="{Binding Mix, Mode=OneWay}"/>
+                <!--
+                    The widget graphs its consumers the same way the Lines view does, so the two
+                    read identically; a wider widget buys more history rather than fatter pixels.
+                -->
+                <local:TalkerLineGraph Grid.Column="1" MinHeight="22" VerticalAlignment="Stretch"
+                                       Margin="0,2"
+                                       InRate="{Binding InRate, Mode=OneWay}"
+                                       OutRate="{Binding OutRate, Mode=OneWay}"
+                                       ScaleMax="{Binding ScaleMax, Mode=OneWay}"
+                                       Mix="{Binding Mix, Mode=OneWay}"
+                                       Sequence="{Binding SampleSequence, Mode=OneWay}"/>
 
                 <!--
                     Arrows sit in their own column rather than inline with the figures: the rates
@@ -382,6 +386,19 @@
                                                RelativeSource={RelativeSource AncestorType=Window},
                                                Converter={StaticResource ModeVis},
                                                ConverterParameter=Stream}"/>
+
+                        <!-- Lines view: a graph line per top consumer, up for in, down for out -->
+                        <local:TalkerLineGraph Grid.Row="0" Grid.RowSpan="2" Grid.Column="1"
+                                               MinHeight="58" Margin="0,1,0,2"
+                                               InRate="{Binding InRate, Mode=OneWay}"
+                                               OutRate="{Binding OutRate, Mode=OneWay}"
+                                               ScaleMax="{Binding ScaleMax, Mode=OneWay}"
+                                               Mix="{Binding Mix, Mode=OneWay}"
+                                               Sequence="{Binding SampleSequence, Mode=OneWay}"
+                                               Visibility="{Binding DataContext.Mode,
+                                                   RelativeSource={RelativeSource AncestorType=Window},
+                                                   Converter={StaticResource ModeVis},
+                                                   ConverterParameter=Lines}"/>
                     </Grid>
                 </Grid>
             </Border>
@@ -563,12 +580,12 @@
 
                 <Button Content="{Binding ViewModeText, Mode=OneWay}" Width="104" Margin="0,0,8,0"
                         Click="CycleView_Click"
-                        ToolTip="Cycle bars → stream → widget"/>
+                        ToolTip="Cycle bars → stream → lines → widget"/>
 
                 <!-- Flow speed only means anything where a ribbon is drawn. -->
                 <StackPanel Orientation="Horizontal" Margin="0,0,10,0"
                             Visibility="{Binding Mode, Converter={StaticResource ModeVis},
-                                ConverterParameter=Stream|Widget}">
+                                ConverterParameter=Stream}">
                     <TextBlock Text="Flow" VerticalAlignment="Center" Margin="0,0,6,0"
                                Foreground="{StaticResource FgDim}"/>
                     <Slider Width="90" Minimum="15" Maximum="200" VerticalAlignment="Center"
