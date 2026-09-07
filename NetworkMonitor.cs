@@ -19,8 +19,10 @@ public enum ViewMode
     Stream,
     /// <summary>History graph with a line per top consumer, inbound above the spine and outbound below.</summary>
     Lines,
-    /// <summary>Compact always-on-top panel: graphs and rates for the selected interfaces only.</summary>
+    /// <summary>Compact always-on-top panel drawing the flowing ribbon, for the selected interfaces only.</summary>
     Widget,
+    /// <summary>The same compact panel drawing the per-consumer lines instead of the ribbon.</summary>
+    WidgetLines,
 }
 
 /// <summary>Polls the OS interface counters on a configurable interval and publishes per-NIC meters.</summary>
@@ -193,16 +195,25 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
         }
     }
 
-    /// <summary>Advances Bars → Stream → Lines → Widget → Bars.</summary>
+    /// <summary>Advances Bars → Stream → Lines → Widget → Widget lines → Bars.</summary>
     public void CycleMode() => Mode = _mode switch
     {
         ViewMode.Bars => ViewMode.Stream,
         ViewMode.Stream => ViewMode.Lines,
         ViewMode.Lines => ViewMode.Widget,
+        ViewMode.Widget => ViewMode.WidgetLines,
         _ => ViewMode.Bars,
     };
 
-    public string ViewModeText => $"View: {_mode}";
+    /// <summary>Whether this mode is drawn as the compact always-on-top panel, whichever graph it uses.</summary>
+    public static bool IsWidget(ViewMode mode) => mode is ViewMode.Widget or ViewMode.WidgetLines;
+
+    public string ViewModeText => "View: " + _mode switch
+    {
+        ViewMode.Widget => "Widget",
+        ViewMode.WidgetLines => "Widget lines",
+        var m => m.ToString(),
+    };
 
     /// <summary>Keeps the window above others. Widget mode is always on top regardless.</summary>
     public bool AlwaysOnTop

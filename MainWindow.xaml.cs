@@ -492,7 +492,9 @@ public partial class MainWindow : Window
 
     private void ApplyViewMode()
     {
-        if (_monitor.Mode == ViewMode.Widget)
+        // Both widget modes wear the same chrome; only the graph inside them differs, so
+        // switching between them must not tear the window down and build it again.
+        if (NetworkMonitor.IsWidget(_monitor.Mode))
             EnterWidgetMode();
         else
             ExitWidgetMode();
@@ -503,7 +505,7 @@ public partial class MainWindow : Window
     /// <summary>A widget floats by definition; otherwise the File menu option decides.</summary>
     private void UpdateTopmost()
     {
-        Topmost = _monitor.Mode == ViewMode.Widget || _monitor.AlwaysOnTop;
+        Topmost = NetworkMonitor.IsWidget(_monitor.Mode) || _monitor.AlwaysOnTop;
         ReassertTopmost();
     }
 

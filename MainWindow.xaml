@@ -105,16 +105,34 @@
                            Margin="0,0,8,0" ToolTip="{Binding Description}"/>
 
                 <!--
-                    The widget graphs its consumers the same way the Lines view does, so the two
-                    read identically; a wider widget buys more history rather than fatter pixels.
+                    Two graphs share this cell; the widget mode picks which one is drawn. Both are
+                    always in the tree so switching between them is a visibility flip rather than a
+                    rebuild, and neither is ever collecting history while hidden — each drops its
+                    backlog when collapsed.
                 -->
+                <local:StreamGraph Grid.Column="1" MinHeight="22" VerticalAlignment="Stretch"
+                                   Margin="0,2"
+                                   PixelsPerSecond="{Binding DataContext.StreamSpeed,
+                                       RelativeSource={RelativeSource AncestorType=Window}}"
+                                   InLevel="{Binding InLevel, Mode=OneWay}"
+                                   OutLevel="{Binding OutLevel, Mode=OneWay}"
+                                   Mix="{Binding Mix, Mode=OneWay}"
+                                   Visibility="{Binding DataContext.Mode,
+                                       RelativeSource={RelativeSource AncestorType=Window},
+                                       Converter={StaticResource ModeVis},
+                                       ConverterParameter=Widget}"/>
+
                 <local:TalkerLineGraph Grid.Column="1" MinHeight="22" VerticalAlignment="Stretch"
                                        Margin="0,2"
                                        InRate="{Binding InRate, Mode=OneWay}"
                                        OutRate="{Binding OutRate, Mode=OneWay}"
                                        ScaleMax="{Binding ScaleMax, Mode=OneWay}"
                                        Mix="{Binding Mix, Mode=OneWay}"
-                                       Sequence="{Binding SampleSequence, Mode=OneWay}"/>
+                                       Sequence="{Binding SampleSequence, Mode=OneWay}"
+                                       Visibility="{Binding DataContext.Mode,
+                                           RelativeSource={RelativeSource AncestorType=Window},
+                                           Converter={StaticResource ModeVis},
+                                           ConverterParameter=WidgetLines}"/>
 
                 <!--
                     Arrows sit in their own column rather than inline with the figures: the rates
@@ -482,7 +500,7 @@
         -->
         <Border Grid.Row="0" Background="#171C24" Padding="6,2"
                 PreviewMouseLeftButtonDown="MenuBar_PreviewMouseLeftButtonDown"
-                Visibility="{Binding Mode, Converter={StaticResource ModeVis}, ConverterParameter=!Widget}">
+                Visibility="{Binding Mode, Converter={StaticResource ModeVis}, ConverterParameter=!Widget|WidgetLines}">
             <Menu>
                 <MenuItem Header="_File">
                     <MenuItem Header="Always on top" IsCheckable="True"
@@ -504,7 +522,7 @@
         <!-- Banner, doubling as the title bar: drag to move, double-click to maximize -->
         <Border Grid.Row="1" Padding="16,11" BorderBrush="#2C3440" BorderThickness="0,0,0,1"
                 MouseLeftButtonDown="TitleBar_MouseLeftButtonDown"
-                Visibility="{Binding Mode, Converter={StaticResource ModeVis}, ConverterParameter=!Widget}">
+                Visibility="{Binding Mode, Converter={StaticResource ModeVis}, ConverterParameter=!Widget|WidgetLines}">
             <Border.Background>
                 <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
                     <GradientStop Color="#16202B" Offset="0"/>
@@ -552,7 +570,7 @@
         <Border Grid.Row="2" Background="{StaticResource PanelAlt}" Padding="14,10"
                 BorderBrush="#2C3440" BorderThickness="0,0,0,1"
                 MouseLeftButtonDown="TitleBar_MouseLeftButtonDown"
-                Visibility="{Binding Mode, Converter={StaticResource ModeVis}, ConverterParameter=!Widget}">
+                Visibility="{Binding Mode, Converter={StaticResource ModeVis}, ConverterParameter=!Widget|WidgetLines}">
             <WrapPanel Orientation="Horizontal">
                 <TextBlock Text="Poll every" VerticalAlignment="Center" Margin="0,0,8,0"/>
                 <Slider x:Name="IntervalSlider" Width="190" Minimum="100" Maximum="5000"
@@ -580,12 +598,12 @@
 
                 <Button Content="{Binding ViewModeText, Mode=OneWay}" Width="104" Margin="0,0,8,0"
                         Click="CycleView_Click"
-                        ToolTip="Cycle bars → stream → lines → widget"/>
+                        ToolTip="Cycle bars → stream → lines → widget → widget lines"/>
 
                 <!-- Flow speed only means anything where a ribbon is drawn. -->
                 <StackPanel Orientation="Horizontal" Margin="0,0,10,0"
                             Visibility="{Binding Mode, Converter={StaticResource ModeVis},
-                                ConverterParameter=Stream}">
+                                ConverterParameter=Stream|Widget}">
                     <TextBlock Text="Flow" VerticalAlignment="Center" Margin="0,0,6,0"
                                Foreground="{StaticResource FgDim}"/>
                     <Slider Width="90" Minimum="15" Maximum="200" VerticalAlignment="Center"
@@ -601,7 +619,7 @@
 
         <!-- Interface list -->
         <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" Padding="14,12,14,0"
-                      Visibility="{Binding Mode, Converter={StaticResource ModeVis}, ConverterParameter=!Widget}">
+                      Visibility="{Binding Mode, Converter={StaticResource ModeVis}, ConverterParameter=!Widget|WidgetLines}">
             <Grid>
                 <ItemsControl x:Name="InterfaceList" ItemsSource="{Binding Interfaces}"
                               ItemTemplate="{StaticResource InterfaceTemplate}"
@@ -631,7 +649,7 @@
         <Border Grid.Row="4" Background="{StaticResource PanelAlt}" Padding="14,7"
                 BorderBrush="#2C3440" BorderThickness="0,1,0,0"
                 MouseLeftButtonDown="TitleBar_MouseLeftButtonDown"
-                Visibility="{Binding Mode, Converter={StaticResource ModeVis}, ConverterParameter=!Widget}">
+                Visibility="{Binding Mode, Converter={StaticResource ModeVis}, ConverterParameter=!Widget|WidgetLines}">
             <DockPanel>
                 <!-- Build version, bottom-right corner -->
                 <TextBlock DockPanel.Dock="Right" FontSize="11" VerticalAlignment="Center"
@@ -663,7 +681,7 @@
         <!-- Background and frame come from the shell; this only needs padding and a drag target. -->
         <Border Grid.Row="0" Grid.RowSpan="5" Background="Transparent" Padding="10,8"
                 MouseLeftButtonDown="Widget_MouseLeftButtonDown"
-                Visibility="{Binding Mode, Converter={StaticResource ModeVis}, ConverterParameter=Widget}">
+                Visibility="{Binding Mode, Converter={StaticResource ModeVis}, ConverterParameter=Widget|WidgetLines}">
             <DockPanel>
                 <!-- Title centred on the widget itself; the rate sits over it on the right. -->
                 <Grid DockPanel.Dock="Top" Margin="0,0,0,7">
