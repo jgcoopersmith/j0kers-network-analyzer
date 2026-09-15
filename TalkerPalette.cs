@@ -136,19 +136,11 @@ public sealed class TalkerMix
     /// <summary>
     /// Builds a mix from per-band byte totals, or null when nothing was attributed — in which
     /// case the ribbon falls back to its plain two-tone gradient rather than showing a lie.
-    ///
-    /// <paramref name="coverageIn"/> and <paramref name="coverageOut"/> are the fraction of what
-    /// the adapter actually moved that the store could attribute at all. The bands are scaled by
-    /// it so they occupy their true share of the ribbon and the neutral band holds the rest.
-    /// Without that, whatever the store returned was stretched to fill the whole ribbon however
-    /// little of the interface it explained: a widget polling a router at 6 KB/s was painted
-    /// across an 8 MB/s stream because the 99.9% belonging to a bridged VM was invisible to it.
     /// </summary>
-    public static TalkerMix? Build(double[] bytesIn, double[] bytesOut,
-        double coverageIn = 1.0, double coverageOut = 1.0)
+    public static TalkerMix? Build(double[] bytesIn, double[] bytesOut)
     {
-        var cumIn = Cumulate(bytesIn, coverageIn);
-        var cumOut = Cumulate(bytesOut, coverageOut);
+        var cumIn = Cumulate(bytesIn);
+        var cumOut = Cumulate(bytesOut);
         return cumIn is null && cumOut is null
             ? null
             : new TalkerMix(cumIn ?? Unattributed, cumOut ?? Unattributed);
@@ -174,7 +166,7 @@ public sealed class TalkerMix
         return cum;
     }
 
-    private static double[]? Cumulate(double[] bytes, double coverage)
+    private static double[]? Cumulate(double[] bytes)
     {
         var total = 0.0;
         foreach (var b in bytes)
@@ -182,18 +174,14 @@ public sealed class TalkerMix
         if (total <= 0)
             return null;
 
-        var scale = Math.Clamp(coverage, 0, 1);
-
         var cum = new double[TalkerPalette.BandCount + 1];
         var running = 0.0;
         for (var i = 0; i < TalkerPalette.BandCount; i++)
         {
             running += bytes[i];
-            cum[i + 1] = running / total * scale;
+            cum[i + 1] = running / total;
         }
-        // The outer edge is always the full ribbon, so the neutral band runs from wherever the
-        // attributed bands stopped out to the edge — that gap is the unattributed traffic, and
-        // it is the honest thing to leave in the plain gradient rather than colour in.
+        // Guard against rounding leaving a sliver of unpainted ribbon at the outer edge.
         cum[TalkerPalette.BandCount] = 1;
         return cum;
     }
