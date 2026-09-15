@@ -179,7 +179,12 @@ public sealed class TopTalkers : INotifyPropertyChanged
     /// Fills the tooltip from the latest reading for one interface. Cheap and synchronous — the
     /// figures are already in hand, so hovering shows them immediately.
     /// </summary>
-    public void Show(InterfaceMeter meter, bool useBits)
+    /// <param name="visibleSlots">
+    /// Colour slots the graph under the pointer is drawing right now, or null when there is no
+    /// graph to ask. A consumer that has dropped out of the top few is listed only while its line
+    /// is still on screen — which the graph knows and nothing else does.
+    /// </param>
+    public void Show(InterfaceMeter meter, bool useBits, IReadOnlyCollection<int>? visibleSlots = null)
     {
         // The ETW reading covers the collector's interval; the store's covers two minutes.
         var window = _fromEtw && _etwSeconds > 0 ? _etwSeconds : Window.TotalSeconds;
@@ -195,6 +200,11 @@ public sealed class TopTalkers : INotifyPropertyChanged
         {
             var rows = roster
                 .Select(kv => (Name: kv.Key, E: kv.Value))
+                // Currently moving traffic, or still being drawn. Nothing else: an entry whose
+                // line has scrolled off is no longer on screen and padding the list with it is
+                // the opposite failure to the one being fixed.
+                .Where(r => r.E.Current ||
+                            (r.E.Slot >= 0 && visibleSlots is not null && visibleSlots.Contains(r.E.Slot)))
                 .OrderByDescending(r => r.E.Current)
                 .ThenByDescending(r => r.E.Rx + r.E.Tx)
                 .ThenByDescending(r => r.E.LastSeen);

@@ -458,8 +458,44 @@ public partial class MainWindow : Window
     /// <summary>Shows the latest per-app usage for the hovered interface as its tooltip opens.</summary>
     private void Meter_ToolTipOpening(object sender, ToolTipEventArgs e)
     {
-        if (sender is FrameworkElement { DataContext: InterfaceMeter meter })
-            TopTalkers.Instance.Show(meter, _monitor.UseBits);
+        if (sender is not FrameworkElement { DataContext: InterfaceMeter meter } host)
+            return;
+
+        // Ask the graph under the pointer what it is actually drawing. Only it knows: how far its
+        // history reaches depends on its own width and the polling interval, which between them
+        // span seconds to hours. Anything else is a guess, and a guess is what left lines on
+        // screen with nothing naming them.
+        TopTalkers.Instance.Show(meter, _monitor.UseBits, VisibleSlotsUnder(host));
+    }
+
+    /// <summary>
+    /// Finds the consumer graph inside a hovered meter and returns the slots it is drawing.
+    /// Both graphs live in the same cell with only one of them visible, so the search skips
+    /// anything collapsed. Null when neither is present — a collapsed card, or the bars view.
+    /// </summary>
+    private static IReadOnlyCollection<int>? VisibleSlotsUnder(DependencyObject root)
+    {
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+
+            if (child is UIElement { Visibility: not Visibility.Visible })
+                continue;
+
+            switch (child)
+            {
+                case TalkerLineGraph lines:
+                    return lines.VisibleSlots();
+                case StreamGraph ribbon:
+                    return ribbon.VisibleSlots();
+            }
+
+            if (VisibleSlotsUnder(child) is { } found)
+                return found;
+        }
+
+        return null;
     }
 
     /// <summary>Refreshes the startup tick from the registry as the menu opens.</summary>

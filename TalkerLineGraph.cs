@@ -130,6 +130,29 @@ public sealed class TalkerLineGraph : FrameworkElement
             _history.RemoveRange(0, _history.Count - capacity);
     }
 
+    /// <summary>
+    /// The colour slots this graph is currently drawing a line for, in either direction.
+    ///
+    /// How far back the drawing reaches depends on the width and the polling interval — a narrow
+    /// panel at a tenth of a second holds seconds, a wide one at ten seconds holds hours — so it
+    /// is not something a clock elsewhere can approximate. The legend asks the graph what is on
+    /// screen and names exactly that. The test is the same one <see cref="DrawSeries"/> uses to
+    /// decide whether to draw at all, so the two cannot disagree.
+    /// </summary>
+    public IReadOnlyCollection<int> VisibleSlots()
+    {
+        var slots = new HashSet<int>();
+        foreach (var sample in _history)
+        {
+            for (var line = 0; line < LineCount; line++)
+            {
+                if (sample.In[line] > 0 || sample.Out[line] > 0)
+                    slots.Add(line);
+            }
+        }
+        return slots;
+    }
+
     protected override void OnRenderSizeChanged(SizeChangedInfo info)
     {
         base.OnRenderSizeChanged(info);

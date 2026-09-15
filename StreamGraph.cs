@@ -138,6 +138,27 @@ public sealed class StreamGraph : FrameworkElement
         InvalidateVisual();
     }
 
+    /// <summary>
+    /// The colour slots this ribbon is currently drawing a band for. Same test
+    /// <see cref="DrawBands"/> uses to decide whether a band is worth painting, so the legend
+    /// names exactly what is on screen rather than what a timer elsewhere guesses is still there.
+    /// </summary>
+    public IReadOnlyCollection<int> VisibleSlots()
+    {
+        var slots = new HashSet<int>();
+        foreach (var sample in _history)
+        {
+            if (sample.Mix is not { } mix)
+                continue;
+            for (var band = 0; band < TalkerPalette.SlotCount; band++)
+            {
+                if (mix.HasBand(band, inbound: true) || mix.HasBand(band, inbound: false))
+                    slots.Add(band);
+            }
+        }
+        return slots;
+    }
+
     /// <summary>Drops samples that have scrolled past the left edge.</summary>
     private void Prune(double now)
     {
