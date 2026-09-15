@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
@@ -100,6 +100,82 @@ public sealed class TopTalkers : INotifyPropertyChanged
     private readonly record struct Talker(string Name, int Slot, double Rx, double Tx);
 
     /// <summary>
+    /// How long a consumer is remembered for the legend after it stops leading.
+    ///
+    /// This has to outlast what the graph is still drawing, or a line remains on screen with
+    /// nothing in the tooltip naming it. The longest history the line graph holds is 900 samples,
+    /// one per poll, and the poll floor is 100 ms — but at that rate the samples span only a
+    /// minute and a half. The worst case that matters is the default half-second poll, where 900
+    /// samples reach back seven and a half minutes.
+    /// </summary>
+    private static readonly TimeSpan LegendMemory = TimeSpan.FromMinutes(8);
+
+    /// <summary>A consumer seen on one adapter recently enough that its colour may still be drawn.</summary>
+    private sealed class Remembered
+    {
+        public int Slot;
+        public double Rx;
+        public double Tx;
+        public DateTime LastSeen;
+
+        /// <summary>Whether this entry was in the most recent reading rather than only in history.</summary>
+        public bool Current;
+    }
+
+    /// <summary>Consumers seen per adapter within <see cref="LegendMemory"/>, keyed by name.</summary>
+    private readonly Dictionary<string, Dictionary<string, Remembered>> _recent =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Folds a fresh reading into the adapter's roster and ages out whatever has scrolled off.
+    /// Entries that dropped out of the top few are kept, with their rates zeroed: their lines are
+    /// still on the graph, and the point of the roster is that every drawn colour has a name.
+    /// </summary>
+    private void Remember(string adapterId, List<Talker> talkers, DateTime now)
+    {
+        if (!_recent.TryGetValue(adapterId, out var roster))
+            _recent[adapterId] = roster = new Dictionary<string, Remembered>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var entry in roster.Values)
+        {
+            entry.Current = false;
+            entry.Rx = 0;
+            entry.Tx = 0;
+        }
+
+        foreach (var t in talkers)
+        {
+            if (!roster.TryGetValue(t.Name, out var e))
+                roster[t.Name] = e = new Remembered();
+            e.Slot = t.Slot;
+            e.Rx = t.Rx;
+            e.Tx = t.Tx;
+            e.LastSeen = now;
+            e.Current = true;
+        }
+
+        // A colour belongs to whoever holds it now. An entry that was evicted from one still
+        // carries the slot it used to have, and listing it that way puts two names against one
+        // colour — worse than the missing legend this roster exists to fix. It stays on the list,
+        // because it was recently active and the user may be looking for it, but it gives the
+        // colour up and shows the neutral swatch.
+        foreach (var kv in roster)
+        {
+            if (kv.Value.Slot >= 0 &&
+                !string.Equals(_slots.HolderOf(kv.Value.Slot), kv.Key, StringComparison.OrdinalIgnoreCase))
+            {
+                kv.Value.Slot = -1;
+            }
+        }
+
+        foreach (var name in roster.Where(kv => now - kv.Value.LastSeen > LegendMemory)
+                                   .Select(kv => kv.Key).ToList())
+        {
+            roster.Remove(name);
+        }
+    }
+
+    /// <summary>
     /// Fills the tooltip from the latest reading for one interface. Cheap and synchronous — the
     /// figures are already in hand, so hovering shows them immediately.
     /// </summary>
@@ -110,19 +186,29 @@ public sealed class TopTalkers : INotifyPropertyChanged
         Scope = $"{meter.Name} · last {window:N0}s";
 
         Items.Clear();
-        if (_byAdapter.TryGetValue(meter.Id, out var talkers))
+
+        // Everything still drawn, not merely the latest reading. A consumer that has dropped out
+        // of the top few keeps its line on the graph until the sample carrying it scrolls off, and
+        // a colour on screen with nothing naming it is exactly the gap this closes. Those entries
+        // are listed at a rate of zero, which is what they are moving now.
+        if (_recent.TryGetValue(meter.Id, out var roster) && roster.Count > 0)
         {
-            var seconds = window;
-            foreach (var t in talkers)
+            var rows = roster
+                .Select(kv => (Name: kv.Key, E: kv.Value))
+                .OrderByDescending(r => r.E.Current)
+                .ThenByDescending(r => r.E.Rx + r.E.Tx)
+                .ThenByDescending(r => r.E.LastSeen);
+
+            foreach (var (name, e) in rows)
             {
                 Items.Add(new AppUsage
                 {
-                    Name = t.Name,
-                    Slot = t.Slot,
-                    BytesReceived = t.Rx,
-                    BytesSent = t.Tx,
-                    DownText = Rate.Format(t.Rx / seconds, useBits),
-                    UpText = Rate.Format(t.Tx / seconds, useBits),
+                    Name = name,
+                    Slot = e.Slot,
+                    BytesReceived = e.Rx,
+                    BytesSent = e.Tx,
+                    DownText = Rate.Format(e.Rx / window, useBits),
+                    UpText = Rate.Format(e.Tx / window, useBits),
                 });
             }
         }
@@ -157,7 +243,7 @@ public sealed class TopTalkers : INotifyPropertyChanged
                 .Select(m => (meter: m, leaders: Leaders(usage, m.Id)))
                 .ToList();
 
-            AssignSlots(ranked.Select(r => r.leaders).ToList());
+            AssignSlots(ranked.Select(r => r.leaders).ToList(), now);
 
             foreach (var (meter, leaders) in ranked)
             {
@@ -175,6 +261,7 @@ public sealed class TopTalkers : INotifyPropertyChanged
 
                 _byAdapter[meter.Id] = talkers;
                 _readAt[meter.Id] = now;
+                Remember(meter.Id, talkers, now);
                 meter.Mix = BuildMix(talkers);
             }
         }
@@ -231,7 +318,7 @@ public sealed class TopTalkers : INotifyPropertyChanged
         // Same two-step as the store path: rank each interface alone, then hand the shared
         // colours out across all of them at once.
         var ranked = meters.Select(m => (meter: m, leaders: Leaders(usage, m.Id))).ToList();
-        AssignSlots(ranked.Select(r => r.leaders).ToList());
+        AssignSlots(ranked.Select(r => r.leaders).ToList(), now);
 
         foreach (var (meter, leaders) in ranked)
         {
@@ -247,6 +334,7 @@ public sealed class TopTalkers : INotifyPropertyChanged
 
             _byAdapter[meter.Id] = talkers;
             _readAt[meter.Id] = now;
+            Remember(meter.Id, talkers, now);
             meter.Mix = BuildMix(talkers);
         }
 
@@ -270,6 +358,7 @@ public sealed class TopTalkers : INotifyPropertyChanged
 
         _byAdapter.Remove(meter.Id);
         _readAt.Remove(meter.Id);
+        _recent.Remove(meter.Id);
         meter.Mix = null;
     }
 
@@ -298,7 +387,7 @@ public sealed class TopTalkers : INotifyPropertyChanged
     /// An application seen on two interfaces claims once and keeps one colour on both, so a shared
     /// hue means the same program rather than a coincidence.
     /// </summary>
-    private void AssignSlots(List<List<KeyValuePair<string, (double rx, double tx)>>> perAdapter)
+    private void AssignSlots(List<List<KeyValuePair<string, (double rx, double tx)>>> perAdapter, DateTime now)
     {
         var order = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -316,7 +405,7 @@ public sealed class TopTalkers : INotifyPropertyChanged
         if (order.Count > TalkerPalette.SlotCount)
             order.RemoveRange(TalkerPalette.SlotCount, order.Count - TalkerPalette.SlotCount);
 
-        _slots.Sync(order);
+        _slots.Sync(order, now);
     }
 
     /// <summary>

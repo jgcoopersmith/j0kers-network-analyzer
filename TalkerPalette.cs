@@ -79,15 +79,26 @@ public static class TalkerPalette
 public sealed class TalkerSlots
 {
     private readonly string?[] _slots = new string?[TalkerPalette.SlotCount];
+    private readonly DateTime[] _seen = new DateTime[TalkerPalette.SlotCount];
 
-    /// <summary>Re-seats the slots against the current leaders, ordered highest first.</summary>
-    public void Sync(IReadOnlyList<string> leaders)
+    /// <summary>
+    /// Re-seats the slots against the current leaders, ordered highest first.
+    ///
+    /// A slot is NOT released the moment its holder stops leading. The graph keeps minutes of
+    /// history and every sample is drawn in the colour that was current when it was plotted, so
+    /// handing a colour straight to the next application leaves older lines painted in a colour
+    /// that now names somebody else — a legend that is wrong rather than merely missing. A holder
+    /// keeps its colour until the slot is actually needed, and then the least recently seen one
+    /// goes, which is the one whose history is closest to having scrolled off.
+    /// </summary>
+    public void Sync(IReadOnlyList<string> leaders, DateTime now)
     {
-        // Release slots whose holder has dropped out; everyone still present keeps their colour.
-        for (var i = 0; i < _slots.Length; i++)
+        // Anyone still leading keeps their colour and refreshes their claim on it.
+        foreach (var name in leaders)
         {
-            if (_slots[i] is { } held && !leaders.Contains(held, StringComparer.OrdinalIgnoreCase))
-                _slots[i] = null;
+            var held = SlotOf(name);
+            if (held >= 0)
+                _seen[held] = now;
         }
 
         foreach (var name in leaders)
@@ -97,10 +108,24 @@ public sealed class TalkerSlots
 
             var free = Array.IndexOf(_slots, null);
             if (free < 0)
-                break;
+            {
+                // Every colour is spoken for: evict the claim that has gone longest unrenewed.
+                free = 0;
+                for (var i = 1; i < _slots.Length; i++)
+                {
+                    if (_seen[i] < _seen[free])
+                        free = i;
+                }
+            }
+
             _slots[free] = name;
+            _seen[free] = now;
         }
     }
+
+    /// <summary>The application holding each colour, for naming a line the graph is still drawing.</summary>
+    public string? HolderOf(int slot)
+        => slot >= 0 && slot < _slots.Length ? _slots[slot] : null;
 
     /// <summary>The slot this application holds, or <see cref="TalkerPalette.OtherSlot"/>.</summary>
     public int SlotOf(string name)
