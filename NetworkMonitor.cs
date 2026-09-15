@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Net;
@@ -38,6 +38,13 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
     private readonly DispatcherTimer _talkerTimer;
 
     private readonly Dictionary<string, InterfaceMeter> _byId = new();
+
+    /// <summary>
+    /// Per-process byte counts from ETW, collected by a child process. When it is running the
+    /// slow WinRT store is not polled at all: the store accounted for a thousandth of an
+    /// adapter's traffic here, so having both would mean two answers with nothing to choose.
+    /// </summary>
+    private readonly EtwCollector _collector = new(2000);
 
     /// <summary>Saved per-interface state, keyed by adapter id, including adapters not currently visible.</summary>
     private readonly Dictionary<string, InterfaceSetting> _saved = new(StringComparer.OrdinalIgnoreCase);
@@ -392,15 +399,63 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
 
         _lastTimestamp = Stopwatch.GetTimestamp();
         _timer.Start();
-        _talkerTimer.Start();
+
+        _collector.Updated += OnCollectorUpdated;
+        _collector.Start();
+        CollectorStatus = _collector.Running ? "" : _collector.Status;
+
+        // The store is only polled when ETW could not be started, so an unelevated or otherwise
+        // degraded run still shows something rather than nothing.
+        if (!_collector.Running)
+        {
+            _talkerTimer.Start();
+            _ = TopTalkers.Instance.RefreshAsync(Interfaces);
+        }
+
         _ = PollAsync();
-        _ = TopTalkers.Instance.RefreshAsync(Interfaces);
     }
 
     public void Stop()
     {
         _timer.Stop();
         _talkerTimer.Stop();
+    }
+
+    /// <summary>Why per-process figures are unavailable or degraded, empty when all is well.</summary>
+    public string CollectorStatus
+    {
+        get => _collectorStatus;
+        private set => Set(ref _collectorStatus, value);
+    }
+
+    private string _collectorStatus = "";
+
+    /// <summary>
+    /// Shuts the collector down. Called on the way out rather than from <see cref="Stop"/>, which
+    /// is also used for pause: pausing the meters should not tear the ETW session down and build
+    /// it again a moment later.
+    /// </summary>
+    public void Shutdown()
+    {
+        _collector.Updated -= OnCollectorUpdated;
+        _collector.Stop();
+    }
+
+    /// <summary>
+    /// Readings arrive on the collector's reader thread. Everything they touch — the meters, the
+    /// tooltip's collection — belongs to the UI thread, so the work is marshalled there.
+    /// </summary>
+    private void OnCollectorUpdated()
+    {
+        var rows = _collector.Latest;
+        var seconds = _collector.LatestSeconds;
+        if (rows.Count == 0 || seconds <= 0)
+            return;
+
+        _timer.Dispatcher.BeginInvoke(new Action(() =>
+        {
+            TopTalkers.Instance.ApplyEtw(rows, seconds, Interfaces, AddressOwners);
+        }), DispatcherPriority.Background);
     }
 
     public void ResetTotals()
@@ -509,6 +564,10 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
                 a => a.Address.AddressFamily == AddressFamily.InterNetwork);
             var text = unicast is null ? "" : $"{unicast.Address}/{unicast.PrefixLength}";
 
+            // Every local address, not just the first: the per-process figures arrive keyed by
+            // the address the traffic left from, and an adapter usually holds several.
+            var locals = props.UnicastAddresses.Select(a => a.Address.ToString()).ToArray();
+
             var isDefault = false;
             if (bestIndex != 0)
             {
@@ -522,11 +581,11 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
                 }
             }
 
-            return new AddressInfo(text, isDefault);
+            return new AddressInfo(text, isDefault, locals);
         }
         catch (NetworkInformationException)
         {
-            return new AddressInfo("", false);
+            return new AddressInfo("", false, Array.Empty<string>());
         }
     }
 
@@ -554,8 +613,18 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
         return false;
     }
 
+    /// <summary>Local IP address to the id of the adapter holding it.</summary>
+    public IReadOnlyDictionary<string, string> AddressOwners => _addressOwners;
+
+    private Dictionary<string, string> _addressOwners =
+        new(StringComparer.OrdinalIgnoreCase);
+
     private void Apply(List<Sample> samples, double elapsed)
     {
+        // Rebuilt only on rounds that refreshed addressing; otherwise the existing map stands.
+        var owners = samples.Any(x => x.Address is not null)
+            ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            : null;
         // Same comparer as _saved and CaptureInterfaces, so identity is judged consistently.
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -585,7 +654,11 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
             }
 
             if (s.Address is { } address)
+            {
                 meter.SetAddressing(address.Text, address.IsDefaultRoute);
+                foreach (var local in address.Locals)
+                    owners[local] = meter.Id;
+            }
 
             meter.Update(s.Status, s.BytesReceived, s.BytesSent, elapsed);
         }
@@ -603,6 +676,9 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
             _byId.Remove(m.Id);
             Interfaces.RemoveAt(i);
         }
+
+        if (owners is not null && owners.Count > 0)
+            _addressOwners = owners;
 
         // Set last: everything discovered by this first sweep counts as having been here at
         // launch, however many adapters that turned out to be.
@@ -669,7 +745,7 @@ public sealed class NetworkMonitor : INotifyPropertyChanged
     public string AggregateOutText => Rate.Format(Interfaces.Sum(m => m.OutRate), _useBits);
 
     /// <summary>One adapter's addressing, read only on the rounds that refresh it.</summary>
-    private readonly record struct AddressInfo(string Text, bool IsDefaultRoute);
+    private readonly record struct AddressInfo(string Text, bool IsDefaultRoute, string[] Locals);
 
     private readonly record struct Sample(
         NetworkInterface Nic, OperationalStatus Status, long BytesReceived, long BytesSent,

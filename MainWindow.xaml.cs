@@ -337,6 +337,18 @@ public partial class MainWindow : Window
             WindowState = WindowState.Minimized;
     }
 
+    /// <summary>
+    /// Last chance to take the collector down, and the only reliable one: the closing handler
+    /// above can cancel a close, so stopping it there would kill the collector on a close that
+    /// never happened. A collector left running keeps an ETW session alive after the window has
+    /// gone, which is the one failure this arrangement exists to avoid.
+    /// </summary>
+    protected override void OnClosed(EventArgs e)
+    {
+        _monitor.Shutdown();
+        base.OnClosed(e);
+    }
+
     /// <summary>Catches an ordinary minimize so it lands in the tray when that option is on.</summary>
     private void MainWindow_StateChanged(object? sender, EventArgs e)
     {

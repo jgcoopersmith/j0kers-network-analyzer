@@ -105,12 +105,14 @@ public sealed class TopTalkers : INotifyPropertyChanged
     /// </summary>
     public void Show(InterfaceMeter meter, bool useBits)
     {
-        Scope = $"{meter.Name} · last {Window.TotalSeconds:N0}s";
+        // The ETW reading covers the collector's interval; the store's covers two minutes.
+        var window = _fromEtw && _etwSeconds > 0 ? _etwSeconds : Window.TotalSeconds;
+        Scope = $"{meter.Name} · last {window:N0}s";
 
         Items.Clear();
         if (_byAdapter.TryGetValue(meter.Id, out var talkers))
         {
-            var seconds = Window.TotalSeconds;
+            var seconds = window;
             foreach (var t in talkers)
             {
                 Items.Add(new AppUsage
@@ -190,6 +192,75 @@ public sealed class TopTalkers : INotifyPropertyChanged
             _busy = false;
         }
     }
+
+    /// <summary>
+    /// Publishes a reading taken from the ETW kernel network provider instead of the WinRT usage
+    /// store. Rows arrive keyed by the local address the traffic left from, which is what places
+    /// each process on an adapter; anything on an address no adapter owns — loopback, multicast —
+    /// is not interface traffic and is dropped.
+    ///
+    /// Unlike the store this replaces, the figures here account for essentially all of what the
+    /// adapters moved, so the shares below are shares of the interface rather than of whatever
+    /// fraction happened to be attributable.
+    /// </summary>
+    public void ApplyEtw(IReadOnlyList<ProcessUsage> rows, double seconds,
+                         IReadOnlyList<InterfaceMeter> meters,
+                         IReadOnlyDictionary<string, string> owners)
+    {
+        if (seconds <= 0)
+            return;
+
+        var now = DateTime.UtcNow;
+        var usage = new Dictionary<string, Dictionary<string, (double rx, double tx)>>(
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var row in rows)
+        {
+            if (!owners.TryGetValue(row.LocalAddress, out var adapterId))
+                continue;
+
+            if (!usage.TryGetValue(adapterId, out var apps))
+                usage[adapterId] = apps = new Dictionary<string, (double rx, double tx)>(
+                    StringComparer.OrdinalIgnoreCase);
+
+            var name = string.IsNullOrWhiteSpace(row.Name) ? $"pid {row.Pid}" : row.Name;
+            apps.TryGetValue(name, out var cur);
+            apps[name] = (cur.rx + row.Received, cur.tx + row.Sent);
+        }
+
+        // Same two-step as the store path: rank each interface alone, then hand the shared
+        // colours out across all of them at once.
+        var ranked = meters.Select(m => (meter: m, leaders: Leaders(usage, m.Id))).ToList();
+        AssignSlots(ranked.Select(r => r.leaders).ToList());
+
+        foreach (var (meter, leaders) in ranked)
+        {
+            if (leaders.Count == 0)
+            {
+                Expire(meter, now);
+                continue;
+            }
+
+            var talkers = leaders
+                .Select(a => new Talker(a.Key, _slots.SlotOf(a.Key), a.Value.rx, a.Value.tx))
+                .ToList();
+
+            _byAdapter[meter.Id] = talkers;
+            _readAt[meter.Id] = now;
+            meter.Mix = BuildMix(talkers);
+        }
+
+        _etwSeconds = seconds;
+        _fromEtw = true;
+        _polledOnce = true;
+        _unavailable = false;
+    }
+
+    /// <summary>Window the ETW figures cover, which is the collector's interval rather than two minutes.</summary>
+    private double _etwSeconds;
+
+    /// <summary>Whether the readings on show came from ETW rather than the usage store.</summary>
+    private bool _fromEtw;
 
     /// <summary>Drops an adapter's held reading once it is older than <see cref="HoldFor"/>.</summary>
     private void Expire(InterfaceMeter meter, DateTime now)
