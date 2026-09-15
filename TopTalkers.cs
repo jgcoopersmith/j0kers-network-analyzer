@@ -71,6 +71,19 @@ public sealed class TopTalkers : INotifyPropertyChanged
         new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Running volume marks per adapter, used to work out what the adapter actually moved over
+    /// the same window the store was asked about. Without this there is nothing to measure the
+    /// store's answer against, and a reading covering a thousandth of the traffic looks the same
+    /// as one covering all of it.
+    /// </summary>
+    private readonly Dictionary<string, List<(DateTime At, double In, double Out)>> _volume =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Fraction of each adapter's real traffic the store could account for, per direction.</summary>
+    private readonly Dictionary<string, (double In, double Out)> _coverage =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Colour assignments, shared by every interface rather than kept per adapter. Five hues is
     /// the most that stays reliably distinguishable on this background, so they are handed out
     /// across the whole window: two interfaces whose busiest applications differ get different
@@ -96,6 +109,37 @@ public sealed class TopTalkers : INotifyPropertyChanged
         private set => Set(ref _scope, value);
     }
 
+    /// <summary>
+    /// How much of this interface's traffic no application accounts for, or empty when the store
+    /// explained essentially all of it. Worth saying outright: the figures above it are shares of
+    /// what could be attributed, and on an adapter carrying a bridged VM that can be a thousandth
+    /// of the traffic — the listed application is then the largest of almost nothing.
+    /// </summary>
+    public string Unattributed
+    {
+        get => _unattributed;
+        private set => Set(ref _unattributed, value);
+    }
+
+    private string _unattributed = "";
+
+    /// <summary>
+    /// Wording for the unattributed share. Stays silent above 98% coverage, where the remainder
+    /// is the store's usual rounding rather than something genuinely missing.
+    /// </summary>
+    private string DescribeCoverage(string adapterId)
+    {
+        if (!_coverage.TryGetValue(adapterId, out var c))
+            return "";
+
+        var missing = 1.0 - Math.Min(c.In, c.Out);
+        if (missing < 0.02)
+            return "";
+
+        return $"{missing:P1} unattributed — bridged VM, kernel or system traffic, "
+             + "which Windows cannot credit to any application";
+    }
+
     /// <summary>One application's slice of an interface, before it is dressed up for display.</summary>
     private readonly record struct Talker(string Name, int Slot, double Rx, double Tx);
 
@@ -106,6 +150,7 @@ public sealed class TopTalkers : INotifyPropertyChanged
     public void Show(InterfaceMeter meter, bool useBits)
     {
         Scope = $"{meter.Name} · last {Window.TotalSeconds:N0}s";
+        Unattributed = DescribeCoverage(meter.Id);
 
         Items.Clear();
         if (_byAdapter.TryGetValue(meter.Id, out var talkers))
@@ -159,6 +204,10 @@ public sealed class TopTalkers : INotifyPropertyChanged
 
             foreach (var (meter, leaders) in ranked)
             {
+                // Marked every pass, including empty ones: the volume history has to keep up with
+                // the clock whether or not the store had anything to say this time.
+                var actual = Mark(meter, now);
+
                 // An empty poll is far more often the store mid-flush than the link going
                 // quiet, so the previous reading stands until it ages out.
                 if (leaders.Count == 0)
@@ -171,9 +220,15 @@ public sealed class TopTalkers : INotifyPropertyChanged
                     .Select(a => new Talker(a.Key, _slots.SlotOf(a.Key), a.Value.rx, a.Value.tx))
                     .ToList();
 
+                // Coverage is measured against everything the store attributed on this adapter,
+                // not just the five shown, so apps ranked below the cut are not counted as missing.
+                var attributed = Attributed(usage, meter.Id);
+                var coverage = (Fraction(attributed.rx, actual.In), Fraction(attributed.tx, actual.Out));
+
                 _byAdapter[meter.Id] = talkers;
                 _readAt[meter.Id] = now;
-                meter.Mix = BuildMix(talkers);
+                _coverage[meter.Id] = coverage;
+                meter.Mix = BuildMix(talkers, coverage.Item1, coverage.Item2);
             }
         }
         catch (Exception e) when (e is not OutOfMemoryException)
@@ -199,8 +254,62 @@ public sealed class TopTalkers : INotifyPropertyChanged
 
         _byAdapter.Remove(meter.Id);
         _readAt.Remove(meter.Id);
+        _coverage.Remove(meter.Id);
         meter.Mix = null;
     }
+
+    /// <summary>
+    /// Records this adapter's running volume and returns what it moved over the sampled window.
+    /// Marks older than the window are dropped, keeping the one just outside it so the delta
+    /// still spans the whole period.
+    /// </summary>
+    private (double In, double Out) Mark(InterfaceMeter meter, DateTime now)
+    {
+        if (!_volume.TryGetValue(meter.Id, out var marks))
+            _volume[meter.Id] = marks = new List<(DateTime, double, double)>();
+
+        // Resetting the totals sends the running figures backwards. Start the history again
+        // rather than reporting a negative volume and a nonsense coverage from it.
+        if (marks.Count > 0 && (meter.TotalIn < marks[^1].In || meter.TotalOut < marks[^1].Out))
+            marks.Clear();
+
+        marks.Add((now, meter.TotalIn, meter.TotalOut));
+
+        var cutoff = now - Window;
+        var stale = 0;
+        while (stale + 1 < marks.Count && marks[stale + 1].At <= cutoff)
+            stale++;
+        if (stale > 0)
+            marks.RemoveRange(0, stale);
+
+        var first = marks[0];
+        return (meter.TotalIn - first.In, meter.TotalOut - first.Out);
+    }
+
+    /// <summary>Everything the store attributed on one adapter, not only the entries on show.</summary>
+    private static (double rx, double tx) Attributed(
+        Dictionary<string, Dictionary<string, (double rx, double tx)>> usage, string adapterId)
+    {
+        if (!usage.TryGetValue(adapterId, out var apps))
+            return (0, 0);
+
+        double rx = 0, tx = 0;
+        foreach (var a in apps.Values)
+        {
+            rx += a.rx;
+            tx += a.tx;
+        }
+        return (rx, tx);
+    }
+
+    /// <summary>
+    /// How much of <paramref name="actual"/> the attributed figure accounts for. Until enough
+    /// history has built up the measured volume is short, which would read as the store covering
+    /// more than everything — so this never returns above 1, and an adapter with no measured
+    /// traffic is treated as fully accounted for rather than wholly unexplained.
+    /// </summary>
+    private static double Fraction(double attributed, double actual)
+        => actual <= 0 ? 1.0 : Math.Clamp(attributed / actual, 0, 1);
 
     /// <summary>One adapter's biggest consumers, heaviest first.</summary>
     private static List<KeyValuePair<string, (double rx, double tx)>> Leaders(
@@ -252,7 +361,7 @@ public sealed class TopTalkers : INotifyPropertyChanged
     /// Folds the leaders into per-band totals. Anything the store attributed but that did not make
     /// the cut lands in the neutral band, so the bands still add up to the whole ribbon.
     /// </summary>
-    private static TalkerMix? BuildMix(List<Talker> talkers)
+    private static TalkerMix? BuildMix(List<Talker> talkers, double coverageIn, double coverageOut)
     {
         if (talkers.Count == 0)
             return null;
@@ -267,7 +376,7 @@ public sealed class TopTalkers : INotifyPropertyChanged
             tx[band] += t.Tx;
         }
 
-        return TalkerMix.Build(rx, tx);
+        return TalkerMix.Build(rx, tx, coverageIn, coverageOut);
     }
 
     /// <summary>Sums attributed usage per adapter across every connection profile, in one sweep.</summary>
