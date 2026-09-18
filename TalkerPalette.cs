@@ -123,10 +123,6 @@ public sealed class TalkerSlots
         }
     }
 
-    /// <summary>The application holding each colour, for naming a line the graph is still drawing.</summary>
-    public string? HolderOf(int slot)
-        => slot >= 0 && slot < _slots.Length ? _slots[slot] : null;
-
     /// <summary>The slot this application holds, or <see cref="TalkerPalette.OtherSlot"/>.</summary>
     public int SlotOf(string name)
     {
@@ -139,6 +135,9 @@ public sealed class TalkerSlots
     }
 }
 
+/// <summary>One colour a graph has drawn, and the application it was drawn for.</summary>
+public readonly record struct DrawnConsumer(int Slot, string Name);
+
 /// <summary>
 /// How one interface's traffic divides between the coloured slots, as cumulative fractions.
 ///
@@ -146,30 +145,42 @@ public sealed class TalkerSlots
 /// snapshot is held by hundreds of samples at once and must never be edited in place. Boundaries
 /// are stored for all bands whether or not anything occupies them, so samples taken under
 /// different mixes still line up band for band as they scroll past each other.
+///
+/// It also records who held each colour when it was built. Colours are handed from one
+/// application to another every few seconds while the graphs keep a minute or more of history,
+/// so the current holder of a colour is often not whoever an older stretch of it was drawn for.
+/// Only the mix a sample was plotted under can say that.
 /// </summary>
 public sealed class TalkerMix
 {
     private readonly double[] _cumIn;
     private readonly double[] _cumOut;
+    private readonly string?[] _names;
 
-    private TalkerMix(double[] cumIn, double[] cumOut)
+    private TalkerMix(double[] cumIn, double[] cumOut, string?[] names)
     {
         _cumIn = cumIn;
         _cumOut = cumOut;
+        _names = names;
     }
 
     /// <summary>
     /// Builds a mix from per-band byte totals, or null when nothing was attributed — in which
     /// case the ribbon falls back to its plain two-tone gradient rather than showing a lie.
     /// </summary>
-    public static TalkerMix? Build(double[] bytesIn, double[] bytesOut)
+    /// <param name="names">The application holding each colour slot, or null for an empty slot.</param>
+    public static TalkerMix? Build(double[] bytesIn, double[] bytesOut, string?[] names)
     {
         var cumIn = Cumulate(bytesIn);
         var cumOut = Cumulate(bytesOut);
         return cumIn is null && cumOut is null
             ? null
-            : new TalkerMix(cumIn ?? Unattributed, cumOut ?? Unattributed);
+            : new TalkerMix(cumIn ?? Unattributed, cumOut ?? Unattributed, (string?[])names.Clone());
     }
+
+    /// <summary>The application this mix drew in <paramref name="slot"/>'s colour, if any.</summary>
+    public string? NameOf(int slot)
+        => slot >= 0 && slot < _names.Length ? _names[slot] : null;
 
     /// <summary>Fraction of the ribbon's thickness consumed by bands below <paramref name="boundary"/>.</summary>
     public double Cum(int boundary, bool inbound)

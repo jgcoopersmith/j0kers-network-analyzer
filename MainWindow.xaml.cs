@@ -15,6 +15,9 @@ public partial class MainWindow : Window
 {
     private readonly NetworkMonitor _monitor = new();
 
+    /// <summary>Keeps the open top-consumers tooltip naming whatever its graph is drawing.</summary>
+    private readonly TalkerLegend _legend;
+
     /// <summary>Set by File &gt; Exit so that path closes for real regardless of the minimize setting.</summary>
     private bool _exiting;
 
@@ -36,6 +39,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         DataContext = _monitor;
+        _legend = new TalkerLegend(() => _monitor.UseBits);
 
         // Captured from XAML before widget mode drops them to zero, so leaving widget mode
         // restores the real limits rather than a second copy of them hardcoded here.
@@ -455,48 +459,17 @@ public partial class MainWindow : Window
 
     private void CycleView_Click(object sender, RoutedEventArgs e) => _monitor.CycleMode();
 
-    /// <summary>Shows the latest per-app usage for the hovered interface as its tooltip opens.</summary>
+    /// <summary>
+    /// Shows per-app usage for the hovered interface, naming every colour its graph is drawing,
+    /// and keeps doing so while the tooltip stays open.
+    /// </summary>
     private void Meter_ToolTipOpening(object sender, ToolTipEventArgs e)
     {
-        if (sender is not FrameworkElement { DataContext: InterfaceMeter meter } host)
-            return;
-
-        // Ask the graph under the pointer what it is actually drawing. Only it knows: how far its
-        // history reaches depends on its own width and the polling interval, which between them
-        // span seconds to hours. Anything else is a guess, and a guess is what left lines on
-        // screen with nothing naming them.
-        TopTalkers.Instance.Show(meter, _monitor.UseBits, VisibleSlotsUnder(host));
+        if (sender is FrameworkElement { DataContext: InterfaceMeter meter } host)
+            _legend.Open(host, meter);
     }
 
-    /// <summary>
-    /// Finds the consumer graph inside a hovered meter and returns the slots it is drawing.
-    /// Both graphs live in the same cell with only one of them visible, so the search skips
-    /// anything collapsed. Null when neither is present — a collapsed card, or the bars view.
-    /// </summary>
-    private static IReadOnlyCollection<int>? VisibleSlotsUnder(DependencyObject root)
-    {
-        var count = VisualTreeHelper.GetChildrenCount(root);
-        for (var i = 0; i < count; i++)
-        {
-            var child = VisualTreeHelper.GetChild(root, i);
-
-            if (child is UIElement { Visibility: not Visibility.Visible })
-                continue;
-
-            switch (child)
-            {
-                case TalkerLineGraph lines:
-                    return lines.VisibleSlots();
-                case StreamGraph ribbon:
-                    return ribbon.VisibleSlots();
-            }
-
-            if (VisibleSlotsUnder(child) is { } found)
-                return found;
-        }
-
-        return null;
-    }
+    private void Meter_ToolTipClosing(object sender, ToolTipEventArgs e) => _legend.Close();
 
     /// <summary>Refreshes the startup tick from the registry as the menu opens.</summary>
     private void ContextMenu_Opened(object sender, RoutedEventArgs e)

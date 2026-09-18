@@ -100,127 +100,64 @@ public sealed class TopTalkers : INotifyPropertyChanged
     private readonly record struct Talker(string Name, int Slot, double Rx, double Tx);
 
     /// <summary>
-    /// How long a consumer is remembered for the legend after it stops leading.
-    ///
-    /// This has to outlast what the graph is still drawing, or a line remains on screen with
-    /// nothing in the tooltip naming it. The longest history the line graph holds is 900 samples,
-    /// one per poll, and the poll floor is 100 ms — but at that rate the samples span only a
-    /// minute and a half. The worst case that matters is the default half-second poll, where 900
-    /// samples reach back seven and a half minutes.
+    /// Fills the tooltip for one interface: the latest reading, plus every colour the graph under
+    /// the pointer is still drawing. Cheap and synchronous — the figures are already in hand, so
+    /// it is called on every poll while the tooltip is open, not just as it opens.
     /// </summary>
-    private static readonly TimeSpan LegendMemory = TimeSpan.FromMinutes(8);
-
-    /// <summary>A consumer seen on one adapter recently enough that its colour may still be drawn.</summary>
-    private sealed class Remembered
-    {
-        public int Slot;
-        public double Rx;
-        public double Tx;
-        public DateTime LastSeen;
-
-        /// <summary>Whether this entry was in the most recent reading rather than only in history.</summary>
-        public bool Current;
-    }
-
-    /// <summary>Consumers seen per adapter within <see cref="LegendMemory"/>, keyed by name.</summary>
-    private readonly Dictionary<string, Dictionary<string, Remembered>> _recent =
-        new(StringComparer.OrdinalIgnoreCase);
-
-    /// <summary>
-    /// Folds a fresh reading into the adapter's roster and ages out whatever has scrolled off.
-    /// Entries that dropped out of the top few are kept, with their rates zeroed: their lines are
-    /// still on the graph, and the point of the roster is that every drawn colour has a name.
-    /// </summary>
-    private void Remember(string adapterId, List<Talker> talkers, DateTime now)
-    {
-        if (!_recent.TryGetValue(adapterId, out var roster))
-            _recent[adapterId] = roster = new Dictionary<string, Remembered>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var entry in roster.Values)
-        {
-            entry.Current = false;
-            entry.Rx = 0;
-            entry.Tx = 0;
-        }
-
-        foreach (var t in talkers)
-        {
-            if (!roster.TryGetValue(t.Name, out var e))
-                roster[t.Name] = e = new Remembered();
-            e.Slot = t.Slot;
-            e.Rx = t.Rx;
-            e.Tx = t.Tx;
-            e.LastSeen = now;
-            e.Current = true;
-        }
-
-        // A colour belongs to whoever holds it now. An entry that was evicted from one still
-        // carries the slot it used to have, and listing it that way puts two names against one
-        // colour — worse than the missing legend this roster exists to fix. It stays on the list,
-        // because it was recently active and the user may be looking for it, but it gives the
-        // colour up and shows the neutral swatch.
-        foreach (var kv in roster)
-        {
-            if (kv.Value.Slot >= 0 &&
-                !string.Equals(_slots.HolderOf(kv.Value.Slot), kv.Key, StringComparison.OrdinalIgnoreCase))
-            {
-                kv.Value.Slot = -1;
-            }
-        }
-
-        foreach (var name in roster.Where(kv => now - kv.Value.LastSeen > LegendMemory)
-                                   .Select(kv => kv.Key).ToList())
-        {
-            roster.Remove(name);
-        }
-    }
-
-    /// <summary>
-    /// Fills the tooltip from the latest reading for one interface. Cheap and synchronous — the
-    /// figures are already in hand, so hovering shows them immediately.
-    /// </summary>
-    /// <param name="visibleSlots">
-    /// Colour slots the graph under the pointer is drawing right now, or null when there is no
-    /// graph to ask. A consumer that has dropped out of the top few is listed only while its line
-    /// is still on screen — which the graph knows and nothing else does.
+    /// <param name="drawn">
+    /// Every colour the graph is drawing and who it was drawn for, as the graph itself reports
+    /// it, or null when there is no graph to ask. Colours change hands every few seconds while
+    /// the graph keeps a minute or more of history, so the current reading alone leaves older
+    /// stretches of colour unnamed or credited to whoever holds that colour now.
     /// </param>
-    public void Show(InterfaceMeter meter, bool useBits, IReadOnlyCollection<int>? visibleSlots = null)
+    public void Show(InterfaceMeter meter, bool useBits, IReadOnlyList<DrawnConsumer>? drawn = null)
     {
         // The ETW reading covers the collector's interval; the store's covers two minutes.
         var window = _fromEtw && _etwSeconds > 0 ? _etwSeconds : Window.TotalSeconds;
         Scope = $"{meter.Name} · last {window:N0}s";
 
-        Items.Clear();
+        var rows = new List<AppUsage>();
+        var listed = new HashSet<(int, string)>();
 
-        // Everything still drawn, not merely the latest reading. A consumer that has dropped out
-        // of the top few keeps its line on the graph until the sample carrying it scrolls off, and
-        // a colour on screen with nothing naming it is exactly the gap this closes. Those entries
-        // are listed at a rate of zero, which is what they are moving now.
-        if (_recent.TryGetValue(meter.Id, out var roster) && roster.Count > 0)
+        AppUsage Row(string name, int slot, double rx, double tx) => new()
         {
-            var rows = roster
-                .Select(kv => (Name: kv.Key, E: kv.Value))
-                // Currently moving traffic, or still being drawn. Nothing else: an entry whose
-                // line has scrolled off is no longer on screen and padding the list with it is
-                // the opposite failure to the one being fixed.
-                .Where(r => r.E.Current ||
-                            (r.E.Slot >= 0 && visibleSlots is not null && visibleSlots.Contains(r.E.Slot)))
-                .OrderByDescending(r => r.E.Current)
-                .ThenByDescending(r => r.E.Rx + r.E.Tx)
-                .ThenByDescending(r => r.E.LastSeen);
+            Name = name,
+            Slot = slot,
+            BytesReceived = rx,
+            BytesSent = tx,
+            DownText = Rate.Format(rx / window, useBits),
+            UpText = Rate.Format(tx / window, useBits),
+        };
 
-            foreach (var (name, e) in rows)
+        // What is moving now, heaviest first.
+        if (_byAdapter.TryGetValue(meter.Id, out var talkers))
+        {
+            foreach (var t in talkers.OrderByDescending(t => t.Rx + t.Tx))
             {
-                Items.Add(new AppUsage
-                {
-                    Name = name,
-                    Slot = e.Slot,
-                    BytesReceived = e.Rx,
-                    BytesSent = e.Tx,
-                    DownText = Rate.Format(e.Rx / window, useBits),
-                    UpText = Rate.Format(e.Tx / window, useBits),
-                });
+                rows.Add(Row(t.Name, t.Slot, t.Rx, t.Tx));
+                listed.Add((t.Slot, t.Name.ToLowerInvariant()));
             }
+        }
+
+        // Then every other colour still on screen, under the name it was drawn for, at the rate
+        // it is moving now under that colour — nothing. An application whose colour changed while
+        // its old line is still showing gets a row for each, because both are on the graph.
+        if (drawn is not null)
+        {
+            foreach (var d in drawn)
+            {
+                if (listed.Add((d.Slot, d.Name.ToLowerInvariant())))
+                    rows.Add(Row(d.Name, d.Slot, 0, 0));
+            }
+        }
+
+        // Rebuilt only when something changed: this runs on every poll while the tooltip is up,
+        // and regenerating identical rows makes the popup flicker for nothing.
+        if (!Items.Select(Key).SequenceEqual(rows.Select(Key)))
+        {
+            Items.Clear();
+            foreach (var row in rows)
+                Items.Add(row);
         }
 
         Status = Items.Count > 0 ? ""
@@ -228,6 +165,8 @@ public sealed class TopTalkers : INotifyPropertyChanged
             : _unavailable ? "Per-app usage unavailable"
             : "No attributed traffic recorded";
     }
+
+    private static (string, int, string, string) Key(AppUsage u) => (u.Name, u.Slot, u.DownText, u.UpText);
 
     private bool _polledOnce;
 
@@ -271,7 +210,6 @@ public sealed class TopTalkers : INotifyPropertyChanged
 
                 _byAdapter[meter.Id] = talkers;
                 _readAt[meter.Id] = now;
-                Remember(meter.Id, talkers, now);
                 meter.Mix = BuildMix(talkers);
             }
         }
@@ -344,7 +282,6 @@ public sealed class TopTalkers : INotifyPropertyChanged
 
             _byAdapter[meter.Id] = talkers;
             _readAt[meter.Id] = now;
-            Remember(meter.Id, talkers, now);
             meter.Mix = BuildMix(talkers);
         }
 
@@ -368,7 +305,6 @@ public sealed class TopTalkers : INotifyPropertyChanged
 
         _byAdapter.Remove(meter.Id);
         _readAt.Remove(meter.Id);
-        _recent.Remove(meter.Id);
         meter.Mix = null;
     }
 
@@ -429,15 +365,18 @@ public sealed class TopTalkers : INotifyPropertyChanged
 
         var rx = new double[TalkerPalette.BandCount];
         var tx = new double[TalkerPalette.BandCount];
+        var names = new string?[TalkerPalette.SlotCount];
 
         foreach (var t in talkers)
         {
             var band = t.Slot >= 0 ? t.Slot : TalkerPalette.OtherSlot;
             rx[band] += t.Rx;
             tx[band] += t.Tx;
+            if (t.Slot >= 0)
+                names[t.Slot] = t.Name;
         }
 
-        return TalkerMix.Build(rx, tx);
+        return TalkerMix.Build(rx, tx, names);
     }
 
     /// <summary>Sums attributed usage per adapter across every connection profile, in one sweep.</summary>

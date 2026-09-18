@@ -139,24 +139,35 @@ public sealed class StreamGraph : FrameworkElement
     }
 
     /// <summary>
-    /// The colour slots this ribbon is currently drawing a band for. Same test
-    /// <see cref="DrawBands"/> uses to decide whether a band is worth painting, so the legend
-    /// names exactly what is on screen rather than what a timer elsewhere guesses is still there.
+    /// Every coloured band on screen and who it was drawn for, newest first — the live head, then
+    /// back through history. Same test <see cref="DrawBands"/> uses to decide whether a band is
+    /// worth painting, and each sample names its bands from the mix it was taken under, so a
+    /// colour that changed hands while still on screen is listed for both applications.
     /// </summary>
-    public IReadOnlyCollection<int> VisibleSlots()
+    public IReadOnlyList<DrawnConsumer> DrawnConsumers()
     {
-        var slots = new HashSet<int>();
-        foreach (var sample in _history)
+        var drawn = new List<DrawnConsumer>();
+        var seen = new HashSet<DrawnConsumer>();
+
+        void Collect(TalkerMix? mix)
         {
-            if (sample.Mix is not { } mix)
-                continue;
+            if (mix is null)
+                return;
             for (var band = 0; band < TalkerPalette.SlotCount; band++)
             {
-                if (mix.HasBand(band, inbound: true) || mix.HasBand(band, inbound: false))
-                    slots.Add(band);
+                if ((mix.HasBand(band, inbound: true) || mix.HasBand(band, inbound: false)) &&
+                    mix.NameOf(band) is { } name && seen.Add(new DrawnConsumer(band, name)))
+                {
+                    drawn.Add(new DrawnConsumer(band, name));
+                }
             }
         }
-        return slots;
+
+        if (_history.Count > 0)
+            Collect(Mix);
+        for (var i = _history.Count - 1; i >= 0; i--)
+            Collect(_history[i].Mix);
+        return drawn;
     }
 
     /// <summary>Drops samples that have scrolled past the left edge.</summary>

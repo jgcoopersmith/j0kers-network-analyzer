@@ -25,8 +25,11 @@ public sealed class TalkerLineGraph : FrameworkElement
     /// <summary>Lines are drawn for the named consumers only; the neutral remainder is not a series.</summary>
     private const int LineCount = TalkerPalette.SlotCount;
 
-    /// <summary>One plotted moment: every consumer's rate in each direction, in bytes/sec.</summary>
-    private readonly record struct Sample(double[] In, double[] Out);
+    /// <summary>
+    /// One plotted moment: every consumer's rate in each direction, in bytes/sec, and the mix it
+    /// was taken under — which is what says whose traffic each colour in it belongs to.
+    /// </summary>
+    private readonly record struct Sample(double[] In, double[] Out, TalkerMix? Mix);
 
     private readonly List<Sample> _history = new();
     private int _lastSequence = -1;
@@ -118,7 +121,7 @@ public sealed class TalkerLineGraph : FrameworkElement
             outRates[i] = OutRate * shareOut;
         }
 
-        _history.Add(new Sample(inRates, outRates));
+        _history.Add(new Sample(inRates, outRates, mix));
         Trim();
         InvalidateVisual();
     }
@@ -131,26 +134,31 @@ public sealed class TalkerLineGraph : FrameworkElement
     }
 
     /// <summary>
-    /// The colour slots this graph is currently drawing a line for, in either direction.
+    /// Every colour on screen and who it was drawn for, newest first.
     ///
-    /// How far back the drawing reaches depends on the width and the polling interval — a narrow
-    /// panel at a tenth of a second holds seconds, a wide one at ten seconds holds hours — so it
-    /// is not something a clock elsewhere can approximate. The legend asks the graph what is on
-    /// screen and names exactly that. The test is the same one <see cref="DrawSeries"/> uses to
-    /// decide whether to draw at all, so the two cannot disagree.
+    /// Asked of the graph because nothing else knows: how far back the drawing reaches depends on
+    /// the width and the polling interval, and a colour can have been handed to a different
+    /// application part-way across it. Each sample answers for itself from the mix it was taken
+    /// under, so a colour reused within the visible history names both of the applications it
+    /// was drawn for. The test is the one <see cref="DrawSeries"/> uses to decide a line carries
+    /// traffic, so the legend and the picture cannot disagree.
     /// </summary>
-    public IReadOnlyCollection<int> VisibleSlots()
+    public IReadOnlyList<DrawnConsumer> DrawnConsumers()
     {
-        var slots = new HashSet<int>();
-        foreach (var sample in _history)
+        var drawn = new List<DrawnConsumer>();
+        var seen = new HashSet<DrawnConsumer>();
+        for (var i = _history.Count - 1; i >= 0; i--)
         {
+            var sample = _history[i];
             for (var line = 0; line < LineCount; line++)
             {
-                if (sample.In[line] > 0 || sample.Out[line] > 0)
-                    slots.Add(line);
+                if (sample.In[line] <= 0 && sample.Out[line] <= 0)
+                    continue;
+                if (sample.Mix?.NameOf(line) is { } name && seen.Add(new DrawnConsumer(line, name)))
+                    drawn.Add(new DrawnConsumer(line, name));
             }
         }
-        return slots;
+        return drawn;
     }
 
     protected override void OnRenderSizeChanged(SizeChangedInfo info)
