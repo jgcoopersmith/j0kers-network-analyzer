@@ -16,9 +16,10 @@ public sealed record ProcessUsage(int Pid, string Name, string LocalAddress, lon
 ///
 /// This replaces the WinRT usage store, which was the only source available without privilege and
 /// accounted for 0.1% of an adapter's traffic here — it misses bulk transfers from ordinary
-/// processes, not merely from virtual machines. Measured against the same adapters over the same
-/// window, this source totalled 100.7% of what they moved, the excess being wire framing the
-/// adapter counts and ETW does not.
+/// processes, not merely from virtual machines. Keyed by local address and checked against each
+/// adapter's own counters over the same 150 s, this source placed 95–96% of inbound bytes on the
+/// right adapter, the rest being packet headers the adapter counts and ETW's payload sizes do
+/// not. Outbound reads lower while downloading, when most of what leaves is header-only ACKs.
 ///
 /// The session runs in a CHILD PROCESS rather than in the window's own, for one reason: an ETW
 /// session outlives the process that created it. A crash, a taskkill or a power cut leaves the
@@ -289,12 +290,20 @@ public sealed class EtwCollector : IDisposable
             return 3;
         }
 
+        // Which field holds this machine's address differs by protocol, and was measured rather
+        // than taken from the field names: TCP events describe the connection, so saddr is the
+        // local end whichever way the bytes flow; UDP events describe the datagram, so the local
+        // end is the source on send and the destination on receive. Reading daddr for a TCP
+        // receive keyed every download by the remote server, which no adapter owns, and dropped
+        // 99% of inbound traffic. The IPv6 UDP events carry QUIC over v6 and were not subscribed.
         session.Source.Kernel.TcpIpSend     += d => Add(d.ProcessID, d.ProcessName, d.saddr.ToString(), d.size, 0);
-        session.Source.Kernel.TcpIpRecv     += d => Add(d.ProcessID, d.ProcessName, d.daddr.ToString(), 0, d.size);
+        session.Source.Kernel.TcpIpRecv     += d => Add(d.ProcessID, d.ProcessName, d.saddr.ToString(), 0, d.size);
         session.Source.Kernel.TcpIpSendIPV6 += d => Add(d.ProcessID, d.ProcessName, d.saddr.ToString(), d.size, 0);
-        session.Source.Kernel.TcpIpRecvIPV6 += d => Add(d.ProcessID, d.ProcessName, d.daddr.ToString(), 0, d.size);
+        session.Source.Kernel.TcpIpRecvIPV6 += d => Add(d.ProcessID, d.ProcessName, d.saddr.ToString(), 0, d.size);
         session.Source.Kernel.UdpIpSend     += d => Add(d.ProcessID, d.ProcessName, d.saddr.ToString(), d.size, 0);
         session.Source.Kernel.UdpIpRecv     += d => Add(d.ProcessID, d.ProcessName, d.daddr.ToString(), 0, d.size);
+        session.Source.Kernel.UdpIpSendIPV6 += d => Add(d.ProcessID, d.ProcessName, d.saddr.ToString(), d.size, 0);
+        session.Source.Kernel.UdpIpRecvIPV6 += d => Add(d.ProcessID, d.ProcessName, d.daddr.ToString(), 0, d.size);
 
         var last = Stopwatch.GetTimestamp();
 
